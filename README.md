@@ -41,14 +41,6 @@ Please cite using the BibTeX below and
 
 Check out the [egg web demo](https://egraphs-good.github.io/egg-web-demo) for some quick e-graph action!
 
-## Using egg
-
-Add `egg` to your `Cargo.toml` like this:
-```toml
-[dependencies]
-egg = "0.9.5"
-```
-
 Make sure to compile with `--release` if you are measuring performance!
 
 ## Developing
@@ -57,32 +49,3 @@ It's written in [Rust](https://www.rust-lang.org/).
 Typically, you install Rust using [`rustup`](https://www.rust-lang.org/tools/install).
 
 Run `cargo doc --open` to build and open the documentation in a browser.
-
-Before committing/pushing, make sure to run `make`, 
- which runs all the tests and lints that CI will (including those under feature flags).
-This requires the [`cbc`](https://projects.coin-or.org/Cbc) solver
- due to the `lp` feature.
-
-### Tests
-
-Running `cargo test` will run the tests.
-Some tests may time out; try `cargo test --release` if that happens.
-
-There are a couple interesting tests in the `tests` directory:
-
-- `prop.rs` implements propositional logic and proves some simple
-  theorems.
-- `math.rs` implements real arithmetic, with a little bit of symbolic differentiation.
-- `lambda.rs` implements a small lambda calculus, using `egg` as a partial evaluator.
-
-
-### Benchmarking
-
-To get a simple csv of the runtime of each test, you set the environment variable
-`EGG_BENCH_CSV` to something to append a row per test to a csv.
-
-Example:
-```bash
-EGG_BENCH_CSV=math.csv cargo test --test math --release -- --nocapture --test --test-threads=1
-```
-

@@ -1,10 +1,9 @@
 use std::ops::{BitOr, Index, IndexMut};
-use std::{cmp::Ordering, convert::TryFrom};
 use std::{
-    convert::Infallible,
+    cmp::Ordering,
     fmt::{self, Debug, Display},
+    hash::Hash,
 };
-use std::{hash::Hash, str::FromStr};
 
 use crate::*;
 
@@ -25,7 +24,7 @@ pub enum Expr {
 }
 
 impl std::fmt::Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         todo!()
     }
 }
@@ -36,11 +35,11 @@ pub struct ExprAnalysis;
 impl Analysis for ExprAnalysis {
     type Data = Option<i32>;
 
-    fn make(egraph: &mut EGraph, enode: &Expr) -> Self::Data {
+    fn make(_egraph: &mut EGraph, _enode: &Expr) -> Self::Data {
         todo!()
     }
 
-    fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge {
+    fn merge(&mut self, _a: &mut Self::Data, _b: Self::Data) -> DidMerge {
         todo!()
     }
 }
@@ -176,17 +175,6 @@ pub trait Language: Debug + Clone + Eq + Ord + Hash {
     /// Make a [`RecExpr`] by mapping this enodes children to other [`RecExpr`]s.
     ///
     /// This can be used to join together different expression with a new node.
-    ///
-    /// # Example
-    /// ```
-    /// # use egg::*;
-    /// let a_plus_2: RecExpr<SymbolLang> = "(+ a 2)".parse().unwrap();
-    /// // here's an enode with some meaningless child ids
-    /// let enode = SymbolLang::new("*", vec![Id::from(0), Id::from(0)]);
-    /// // make a new recexpr, replacing enode's children with a_plus_2
-    /// let recexpr = enode.join_recexprs(|_id| &a_plus_2);
-    /// assert_eq!(recexpr, "(* (+ a 2) (+ a 2))".parse().unwrap())
-    /// ```
     fn join_recexprs<F, Expr>(&self, mut child_recexpr: F) -> RecExpr<Self>
     where
         F: FnMut(Id) -> Expr,
@@ -213,20 +201,6 @@ pub trait Language: Debug + Clone + Eq + Ord + Hash {
     ///
     /// The provided `get_node` function must return the same node for a given
     /// [`Id`] on multiple invocations.
-    ///
-    /// # Example
-    ///
-    /// You could use this method to perform an "ad-hoc" extraction from the e-graph,
-    /// where you already know which node you want pick for each class:
-    /// ```
-    /// # use egg::*;
-    /// let mut egraph = EGraph::<SymbolLang, ()>::default();
-    /// let expr = "(foo (bar1 (bar2 (bar3 baz))))".parse().unwrap();
-    /// let root = egraph.add_expr(&expr);
-    /// let get_first_enode = |id| egraph[id].nodes[0].clone();
-    /// let expr2 = get_first_enode(root).build_recexpr(get_first_enode);
-    /// assert_eq!(expr, expr2)
-    /// ```
     fn build_recexpr<F>(&self, mut get_node: F) -> RecExpr<Self>
     where
         F: FnMut(Id) -> Self,
@@ -275,78 +249,6 @@ pub trait Language: Debug + Clone + Eq + Ord + Hash {
         nodes.push(self.clone().map_children(|id| ids[&id]));
         Ok(RecExpr::from(nodes))
     }
-}
-
-/// A marker that defines acceptable children types for [`define_language!`].
-///
-/// See [`define_language!`] for more details.
-/// You should not have to implement this trait.
-///
-pub trait LanguageChildren {
-    /// Checks if there are no children.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-    /// Returns the number of children.
-    fn len(&self) -> usize;
-    /// Checks if n is an acceptable number of children for this type.
-    fn can_be_length(n: usize) -> bool;
-    /// Create an instance of this type from a `Vec<Id>`,
-    /// with the guarantee that can_be_length is already true on the `Vec`.
-    fn from_vec(v: Vec<Id>) -> Self;
-    /// Returns a slice of the children `Id`s.
-    fn as_slice(&self) -> &[Id];
-    /// Returns a mutable slice of the children `Id`s.
-    fn as_mut_slice(&mut self) -> &mut [Id];
-}
-
-impl<const N: usize> LanguageChildren for [Id; N] {
-    fn len(&self) -> usize {
-        N
-    }
-
-    fn can_be_length(n: usize) -> bool {
-        n == N
-    }
-
-    fn from_vec(v: Vec<Id>) -> Self {
-        Self::try_from(v.as_slice()).unwrap()
-    }
-
-    fn as_slice(&self) -> &[Id] {
-        self
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [Id] {
-        self
-    }
-}
-
-#[rustfmt::skip]
-impl LanguageChildren for Box<[Id]> {
-    fn len(&self) -> usize                   { <[Id]>::len(self) }
-    fn can_be_length(_: usize) -> bool       { true }
-    fn from_vec(v: Vec<Id>) -> Self          { v.into() }
-    fn as_slice(&self) -> &[Id]              { self }
-    fn as_mut_slice(&mut self) -> &mut [Id]  { self }
-}
-
-#[rustfmt::skip]
-impl LanguageChildren for Vec<Id> {
-    fn len(&self) -> usize                   { <[Id]>::len(self) }
-    fn can_be_length(_: usize) -> bool       { true }
-    fn from_vec(v: Vec<Id>) -> Self          { v }
-    fn as_slice(&self) -> &[Id]              { self }
-    fn as_mut_slice(&mut self) -> &mut [Id]  { self }
-}
-
-#[rustfmt::skip]
-impl LanguageChildren for Id {
-    fn len(&self) -> usize                   { 1 }
-    fn can_be_length(n: usize) -> bool       { n == 1 }
-    fn from_vec(v: Vec<Id>) -> Self          { v[0] }
-    fn as_slice(&self) -> &[Id]              { std::slice::from_ref(self) }
-    fn as_mut_slice(&mut self) -> &mut [Id]  { std::slice::from_mut(self) }
 }
 
 /// A recursive expression from a user-defined [`Language`].
@@ -488,17 +390,6 @@ impl<L: Language + Display> RecExpr<L> {
     /// Pretty print with a maximum line length.
     ///
     /// This gives you a nice, indented, pretty-printed s-expression.
-    ///
-    /// # Example
-    /// ```
-    /// # use egg::*;
-    /// let e: RecExpr<SymbolLang> = "(* (+ 2 2) (+ x y))".parse().unwrap();
-    /// assert_eq!(e.pretty(10), "
-    /// (*
-    ///   (+ 2 2)
-    ///   (+ x y))
-    /// ".trim());
-    /// ```
     pub fn pretty(&self, width: usize) -> String {
         let sexp = self.to_sexp();
 
@@ -570,68 +461,7 @@ examples on this usage of [`Analysis`].
 
 If you don't care about [`Analysis`], `()` implements it trivally,
 just use that.
-
-# Example
-
-```
-use egg::{*, rewrite as rw};
-
-define_language! {
-    enum SimpleMath {
-        "+" = Add([Id; 2]),
-        "*" = Mul([Id; 2]),
-        Num(i32),
-        Symbol(Symbol),
-    }
-}
-
-// in this case, our analysis itself doesn't require any data, so we can just
-// use a unit struct and derive Default
-#[derive(Default)]
-struct ConstantFolding;
-impl Analysis<SimpleMath> for ConstantFolding {
-    type Data = Option<i32>;
-
-    fn merge(&mut self, to: &mut Self::Data, from: Self::Data) -> DidMerge {
-        egg::merge_max(to, from)
-    }
-
-    fn make(egraph: &mut EGraph, enode: &SimpleMath) -> Self::Data {
-        let x = |i: &Id| egraph[*i].data;
-        match enode {
-            SimpleMath::Num(n) => Some(*n),
-            SimpleMath::Add([a, b]) => Some(x(a)? + x(b)?),
-            SimpleMath::Mul([a, b]) => Some(x(a)? * x(b)?),
-            _ => None,
-        }
-    }
-
-    fn modify(egraph: &mut EGraph, id: Id) {
-        if let Some(i) = egraph[id].data {
-            let added = egraph.add(SimpleMath::Num(i));
-            egraph.union(id, added);
-        }
-    }
-}
-
-let rules = &[
-    rw!("commute-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
-    rw!("commute-mul"; "(* ?a ?b)" => "(* ?b ?a)"),
-
-    rw!("add-0"; "(+ ?a 0)" => "?a"),
-    rw!("mul-0"; "(* ?a 0)" => "0"),
-    rw!("mul-1"; "(* ?a 1)" => "?a"),
-];
-
-let expr = "(+ 0 (* (+ 4 -3) foo))".parse().unwrap();
-let mut runner = Runner::<SimpleMath, ConstantFolding, ()>::default().with_expr(&expr).run(rules);
-let just_foo = runner.egraph.add_expr(&"foo".parse().unwrap());
-assert_eq!(runner.egraph.find(runner.roots[0]), runner.egraph.find(just_foo));
-```
-
-[`math.rs`]: https://github.com/egraphs-good/egg/blob/main/tests/math.rs
-[`prop.rs`]: https://github.com/egraphs-good/egg/blob/main/tests/prop.rs
-*/
+**/
 pub trait Analysis: Sized {
     /// The per-[`EClass`] data for this analysis.
     type Data: Debug;

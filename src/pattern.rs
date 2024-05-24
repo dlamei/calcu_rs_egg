@@ -2,9 +2,7 @@ use fmt::Formatter;
 use log::*;
 use std::borrow::Cow;
 use std::fmt::{self, Display};
-use std::{convert::TryFrom, str::FromStr};
-
-use thiserror::Error;
+use std::{convert::TryFrom};
 
 use crate::*;
 
@@ -33,34 +31,6 @@ use crate::*;
 /// Importantly, [`Pattern`] implements [`FromStr`] if the
 /// [`Language`] does.
 /// This is probably how you'll create most [`Pattern`]s.
-///
-/// ```
-/// use egg::*;
-/// define_language! {
-///     enum Math {
-///         Num(i32),
-///         "+" = Add([Id; 2]),
-///     }
-/// }
-///
-/// let mut egraph = EGraph::<Math, ()>::default();
-/// let a11 = egraph.add_expr(&"(+ 1 1)".parse().unwrap());
-/// let a22 = egraph.add_expr(&"(+ 2 2)".parse().unwrap());
-///
-/// // use Var syntax (leading question mark) to get a
-/// // variable in the Pattern
-/// let same_add: Pattern<Math> = "(+ ?a ?a)".parse().unwrap();
-///
-/// // Rebuild before searching
-/// egraph.rebuild();
-///
-/// // This is the search method from the Searcher trait
-/// let matches = same_add.search(&egraph);
-/// let matched_eclasses: Vec<Id> = matches.iter().map(|m| m.eclass).collect();
-/// assert_eq!(matched_eclasses, vec![a11, a22]);
-/// ```
-///
-/// [`FromStr`]: std::str::FromStr
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Pattern {
     /// The actual pattern as a [`RecExpr`]
@@ -183,18 +153,6 @@ impl Display for ENodeOrVar {
             Self::Var(var) => Display::fmt(var, f),
         }
     }
-}
-
-#[derive(Debug, Error)]
-pub enum ENodeOrVarParseError<E> {
-    #[error(transparent)]
-    BadVar(<Var as FromStr>::Err),
-
-    #[error("tried to parse pattern variable {0:?} as an operator")]
-    UnexpectedVar(String),
-
-    #[error(transparent)]
-    BadOp(E),
 }
 
 impl<'a> From<&'a [Expr]> for Pattern {

@@ -1,7 +1,7 @@
 use crate::{Expr, ExprAnalysis, Symbol};
 use crate::{
     util::pretty_print, Analysis, EClass, ENodeOrVar, HashMap, HashSet, Id, Language,
-    PatternAst, RecExpr, Rewrite, UnionFind, Var,
+    PatternAst, Rewrite, UnionFind, Var,
 };
 
 use std::cmp::Ordering;
@@ -135,16 +135,6 @@ impl Explanation {
     /// "Rewrite=>" indicates that the previous term is rewritten to the current term
     /// and "Rewrite<=" indicates that the current term is rewritten to the previous term.
     /// The name of the rule or the reason provided to [`union_instantiations`](super::EGraph::union_instantiations).
-    ///
-    /// Example explanation:
-    /// ```text
-    /// (+ 1 (- a (* (- 2 1) a)))
-    /// (+ 1 (- a (* (Rewrite=> constant_fold 1) a)))
-    /// (+ 1 (- a (Rewrite=> comm-mul (* a 1))))
-    /// (+ 1 (- a (Rewrite<= mul-one a)))
-    /// (+ 1 (Rewrite=> cancel-sub 0))
-    /// (Rewrite=> constant_fold 1)
-    /// ```
     pub fn get_flat_string(&mut self) -> String {
         self.get_flat_strings().join("\n")
     }
@@ -159,25 +149,6 @@ impl Explanation {
     /// "Rewrite=>" indicates that the previous term is rewritten to the current term
     /// and "Rewrite<=" indicates that the current term is rewritten to the previous term.
     /// The name of the rule or the reason provided to [`union_instantiations`](super::EGraph::union_instantiations).
-    ///
-    /// The following example shows that `(+ 1 (- a (* (- 2 1) a))) = 1`
-    /// Example explanation:
-    /// ```text
-    /// (+ 1 (- a (* (- 2 1) a)))
-    /// (+
-    ///    1
-    ///    (Explanation
-    ///      (- a (* (- 2 1) a))
-    ///      (-
-    ///        a
-    ///        (Explanation
-    ///          (* (- 2 1) a)
-    ///          (* (Explanation (- 2 1) (Rewrite=> constant_fold 1)) a)
-    ///          (Rewrite=> comm-mul (* a 1))
-    ///          (Rewrite<= mul-one a)))
-    ///      (Rewrite=> cancel-sub 0)))
-    /// (Rewrite=> constant_fold 1)
-    /// ```
     pub fn get_string(&self) -> String {
         self.to_string()
     }
@@ -187,32 +158,6 @@ impl Explanation {
     ///
     /// The following explanation shows that `(+ x (+ x (+ x x))) = (* 4 x)`.
     /// Steps such as factoring are shared via the let bindings.
-    /// Example explanation:
-    ///
-    /// ```text
-    /// (let
-    ///     (v_0 (Rewrite=> mul-one (* x 1)))
-    ///     (let
-    ///       (v_1 (+ (Explanation x v_0) (Explanation x v_0)))
-    ///       (let
-    ///         (v_2 (+ 1 1))
-    ///         (let
-    ///           (v_3 (Rewrite=> factor (* x v_2)))
-    ///           (Explanation
-    ///             (+ x (+ x (+ x x)))
-    ///             (Rewrite=> assoc-add (+ (+ x x) (+ x x)))
-    ///             (+ (Explanation (+ x x) v_1 v_3) (Explanation (+ x x) v_1 v_3))
-    ///             (Rewrite=> factor (* x (+ (+ 1 1) (+ 1 1))))
-    ///             (Rewrite=> comm-mul (* (+ (+ 1 1) (+ 1 1)) x))
-    ///             (*
-    ///               (Explanation
-    ///                 (+ (+ 1 1) (+ 1 1))
-    ///                 (+
-    ///                   (Explanation (+ 1 1) (Rewrite=> constant_fold 2))
-    ///                   (Explanation (+ 1 1) (Rewrite=> constant_fold 2)))
-    ///                 (Rewrite=> constant_fold 4))
-    ///               x))))))
-    /// ```
     pub fn get_string_with_let(&self) -> String {
         let mut s = "".to_string();
         pretty_print(&mut s, &self.get_sexp_with_let(), 100, 0).unwrap();

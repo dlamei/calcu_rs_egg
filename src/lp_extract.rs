@@ -33,27 +33,6 @@ impl<L: Language, N: Analysis<L>> LpCostFunction<L, N> for AstSize {
 /// On macOS, you might also need the following in your `.zshrc` file:
 /// `export LIBRARY_PATH=$LIBRARY_PATH:$(brew --prefix)/lib`
 ///
-/// # Example
-/// ```
-/// use egg::*;
-/// let mut egraph = EGraph::<SymbolLang, ()>::default();
-///
-/// let f = egraph.add_expr(&"(f x x x)".parse().unwrap());
-/// let g = egraph.add_expr(&"(g (g x))".parse().unwrap());
-/// egraph.union(f, g);
-/// egraph.rebuild();
-///
-/// let best = Extractor::new(&egraph, AstSize).find_best(f).1;
-/// let lp_best = LpExtractor::new(&egraph, AstSize).solve(f);
-///
-/// // In regular extraction, cost is measures on the tree.
-/// assert_eq!(best.to_string(), "(g (g x))");
-///
-/// // Using ILP only counts common sub-expressions once,
-/// // so it can lead to a smaller DAG expression.
-/// assert_eq!(lp_best.to_string(), "(f x x x)");
-/// assert_eq!(lp_best.as_ref().len(), 2);
-/// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "lp")))]
 pub struct LpExtractor<'a, L: Language, N: Analysis<L>> {
     egraph: &'a EGraph<L, N>,

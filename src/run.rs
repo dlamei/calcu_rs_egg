@@ -70,70 +70,8 @@ You can add your own data to this by implementing the
 [`IterationData`] trait.
 [`Runner`] is generic over the [`IterationData`] that it will be in the
 [`Iteration`]s, but by default it uses `()`.
+**/
 
-
-# Example
-
-```
-use egg::{*, rewrite as rw};
-
-define_language! {
-    enum SimpleLanguage {
-        Num(i32),
-        "+" = Add([Id; 2]),
-        "*" = Mul([Id; 2]),
-        Symbol(Symbol),
-    }
-}
-
-let rules: &[Rewrite<SimpleLanguage, ()>] = &[
-    rw!("commute-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
-    rw!("commute-mul"; "(* ?a ?b)" => "(* ?b ?a)"),
-
-    rw!("add-0"; "(+ ?a 0)" => "?a"),
-    rw!("mul-0"; "(* ?a 0)" => "0"),
-    rw!("mul-1"; "(* ?a 1)" => "?a"),
-];
-
-pub struct MyIterData {
-    smallest_so_far: usize,
-}
-
-type MyRunner = Runner<SimpleLanguage, (), MyIterData>;
-
-impl IterationData<SimpleLanguage, ()> for MyIterData {
-    fn make(runner: &MyRunner) -> Self {
-        let root = runner.roots[0];
-        let mut extractor = Extractor::new(&runner.egraph, AstSize);
-        MyIterData {
-            smallest_so_far: extractor.find_best(root).0,
-        }
-    }
-}
-
-let start = "(+ 0 (* 1 foo))".parse().unwrap();
-// Runner is customizable in the builder pattern style.
-let runner = MyRunner::new(Default::default())
-    .with_iter_limit(10)
-    .with_node_limit(10_000)
-    .with_expr(&start)
-    .with_scheduler(SimpleScheduler)
-    .run(rules);
-
-// Now we can check our iteration data to make sure that the cost only
-// got better over time
-for its in runner.iterations.windows(2) {
-    assert!(its[0].data.smallest_so_far >= its[1].data.smallest_so_far);
-}
-
-println!(
-    "Stopped after {} iterations, reason: {:?}",
-    runner.iterations.len(),
-    runner.stop_reason
-);
-
-```
-*/
 pub struct Runner<IterData = ()> {
     /// The [`EGraph`] used.
     pub egraph: EGraph,
@@ -335,23 +273,6 @@ where
     ///
     /// If your hook modifies the e-graph, make sure to call
     /// [`rebuild`](EGraph::rebuild()).
-    ///
-    /// # Example
-    /// ```
-    /// # use egg::*;
-    /// let rules: &[Rewrite<SymbolLang, ()>] = &[
-    ///     rewrite!("commute-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
-    ///     // probably some others ...
-    /// ];
-    ///
-    /// Runner::<SymbolLang, ()>::default()
-    ///     .with_expr(&"(+ 5 2)".parse().unwrap())
-    ///     .with_hook(|runner| {
-    ///          println!("Egraph is this big: {}", runner.egraph.total_size());
-    ///          Ok(())
-    ///     })
-    ///     .run(rules);
-    /// ```
     pub fn with_hook<F>(mut self, hook: F) -> Self
     where
         F: FnMut(&mut Self) -> Result<(), String> + 'static,

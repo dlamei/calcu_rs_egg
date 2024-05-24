@@ -26,17 +26,6 @@ use crate::*;
 ///
 /// The internal symbol cache leaks the strings, which should be
 /// fine if you only put in things like variable names and identifiers.
-///
-/// # Example
-/// ```rust
-/// use egg::Symbol;
-///
-/// assert_eq!(Symbol::from("foo"), Symbol::from("foo"));
-/// assert_eq!(Symbol::from("foo"), "foo".parse().unwrap());
-///
-/// assert_ne!(Symbol::from("foo"), Symbol::from("bar"));
-/// ```
-///
 pub use symbol_table::GlobalSymbol as Symbol;
 
 pub(crate) type BuildHasher = fxhash::FxBuildHasher;

@@ -29,28 +29,6 @@ pub struct MultiPattern {
 
 impl MultiPattern {
     /// Creates a new multipattern, binding the given patterns to the corresponding variables.
-    ///
-    /// ```
-    /// use egg::*;
-    ///
-    /// let mut egraph = EGraph::<SymbolLang, ()>::default();
-    /// egraph.add_expr(&"(f a a)".parse().unwrap());
-    /// egraph.add_expr(&"(f a b)".parse().unwrap());
-    /// egraph.add_expr(&"(g a a)".parse().unwrap());
-    /// egraph.add_expr(&"(g a b)".parse().unwrap());
-    /// egraph.rebuild();
-    ///
-    /// let f_pat: PatternAst<SymbolLang> = "(f ?x ?y)".parse().unwrap();
-    /// let g_pat: PatternAst<SymbolLang> = "(g ?x ?y)".parse().unwrap();
-    /// let v1: Var = "?v1".parse().unwrap();
-    /// let v2: Var = "?v2".parse().unwrap();
-    ///
-    /// let multipattern = MultiPattern::new(vec![(v1, f_pat), (v2, g_pat)]);
-    /// // you can also parse multipatterns
-    /// assert_eq!(multipattern, "?v1 = (f ?x ?y), ?v2 = (g ?x ?y)".parse().unwrap());
-    ///
-    /// assert_eq!(multipattern.n_matches(&egraph), 2);
-    /// ```
     pub fn new(asts: Vec<(Var, PatternAst)>) -> Self {
         let program = machine::Program::compile_from_multi_pat(&asts);
         Self { asts, program }

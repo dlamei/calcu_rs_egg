@@ -98,7 +98,7 @@ impl Machine {
             match instruction {
                 Instruction::Bind { i, out, node } => {
                     let remaining_instructions = instructions.as_slice();
-                    return for_each_matching_node(&egraph[self.reg(*i)], &node, |matched| {
+                    return for_each_matching_node(&egraph[self.reg(*i)], node, |matched| {
                         self.reg.truncate(out.0 as usize);
                         matched.for_each(|id| self.reg.push(id));
                         self.run(egraph, remaining_instructions, subst, yield_fn)

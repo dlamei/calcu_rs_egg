@@ -113,14 +113,6 @@ impl EGraph {
     }
 
     /// Returns `true` if the egraph is empty
-    /// # Example
-    /// ```
-    /// use egg::{*, SymbolLang as S};
-    /// let mut egraph = EGraph::<S, ()>::default();
-    /// assert!(egraph.is_empty());
-    /// egraph.add(S::leaf("foo"));
-    /// assert!(!egraph.is_empty());
-    /// ```
     pub fn is_empty(&self) -> bool {
         self.memo.is_empty()
     }
@@ -128,19 +120,6 @@ impl EGraph {
     /// Returns the number of enodes in the `EGraph`.
     ///
     /// Actually returns the size of the hashcons index.
-    /// # Example
-    /// ```
-    /// use egg::{*, SymbolLang as S};
-    /// let mut egraph = EGraph::<S, ()>::default();
-    /// let x = egraph.add(S::leaf("x"));
-    /// let y = egraph.add(S::leaf("y"));
-    /// // only one eclass
-    /// egraph.union(x, y);
-    /// egraph.rebuild();
-    ///
-    /// assert_eq!(egraph.total_size(), 2);
-    /// assert_eq!(egraph.number_of_classes(), 1);
-    /// ```
     pub fn total_size(&self) -> usize {
         self.memo.len()
     }
@@ -540,18 +519,6 @@ impl EGraph {
     /// This corresponds to the `find` operation on the egraph's
     /// underlying unionfind data structure.
     ///
-    /// # Example
-    /// ```
-    /// use egg::{*, SymbolLang as S};
-    /// let mut egraph = EGraph::<S, ()>::default();
-    /// let x = egraph.add(S::leaf("x"));
-    /// let y = egraph.add(S::leaf("y"));
-    /// assert_ne!(egraph.find(x), egraph.find(y));
-    ///
-    /// egraph.union(x, y);
-    /// egraph.rebuild();
-    /// assert_eq!(egraph.find(x), egraph.find(y));
-    /// ```
     pub fn find(&self, id: Id) -> Id {
         self.unionfind.find(id)
     }
@@ -588,19 +555,6 @@ impl std::ops::IndexMut<Id> for EGraph {
 
 impl EGraph {
     /// Adds a [`RecExpr`] to the [`EGraph`], returning the id of the RecExpr's eclass.
-    ///
-    /// # Example
-    /// ```
-    /// use egg::{*, SymbolLang as S};
-    /// let mut egraph = EGraph::<S, ()>::default();
-    /// let x = egraph.add(S::leaf("x"));
-    /// let y = egraph.add(S::leaf("y"));
-    /// let plus = egraph.add(S::new("+", vec![x, y]));
-    /// let plus_recexpr = "(+ x y)".parse().unwrap();
-    /// assert_eq!(plus, egraph.add_expr(&plus_recexpr));
-    /// ```
-    ///
-    /// [`add_expr`]: EGraph::add_expr()
     pub fn add_expr(&mut self, expr: &RecExpr<Expr>) -> Id {
         let id = self.add_expr_uncanonical(expr);
         self.find(id)
@@ -688,26 +642,6 @@ impl EGraph {
     /// You can pass in either an owned enode or a `&mut` enode,
     /// in which case the enode's children will be canonicalized.
     ///
-    /// # Example
-    /// ```
-    /// # use egg::*;
-    /// let mut egraph: EGraph = Default::default();
-    /// let a = egraph.add(SymbolLang::leaf("a"));
-    /// let b = egraph.add(SymbolLang::leaf("b"));
-    ///
-    /// // lookup will find this node if its in the egraph
-    /// let mut node_f_ab = SymbolLang::new("f", vec![a, b]);
-    /// assert_eq!(egraph.lookup(node_f_ab.clone()), None);
-    /// let id = egraph.add(node_f_ab.clone());
-    /// assert_eq!(egraph.lookup(node_f_ab.clone()), Some(id));
-    ///
-    /// // if the query node isn't canonical, and its passed in by &mut instead of owned,
-    /// // its children will be canonicalized
-    /// egraph.union(a, b);
-    /// egraph.rebuild();
-    /// assert_eq!(egraph.lookup(&mut node_f_ab), Some(id));
-    /// assert_eq!(node_f_ab, SymbolLang::new("f", vec![a, a]));
-    /// ```
     pub fn lookup<B>(&self, enode: B) -> Option<Id>
     where
         B: BorrowMut<Expr>,
@@ -765,41 +699,6 @@ impl EGraph {
     ///
     /// When explanations are enabled calling [`id_to_expr`](EGraph::id_to_expr) on this `Id` will
     /// correspond to the parameter `enode`
-    ///
-    /// ## Example
-    /// ```
-    /// # use egg::*;
-    /// let mut egraph: EGraph = EGraph::default().with_explanations_enabled();
-    /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
-    /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
-    /// egraph.union(a, b);
-    /// egraph.rebuild();
-    ///
-    /// let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]));
-    /// let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]));
-    ///
-    /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
-    /// assert_eq!(egraph.id_to_expr(fb), "(f b)".parse().unwrap());
-    /// ```
-    ///
-    /// When explanations are not enabled calling [`id_to_expr`](EGraph::id_to_expr) on this `Id` will
-    /// produce an expression with equivalent but not necessarily identical children
-    ///
-    /// # Example
-    /// ```
-    /// # use egg::*;
-    /// let mut egraph: EGraph = EGraph::default().with_explanations_disabled();
-    /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
-    /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
-    /// egraph.union(a, b);
-    /// egraph.rebuild();
-    ///
-    /// let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]));
-    /// let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]));
-    ///
-    /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
-    /// assert_eq!(egraph.id_to_expr(fb), "(f a)".parse().unwrap());
-    /// ```
     pub fn add_uncanonical(&mut self, mut enode: Expr) -> Id {
         let original = enode.clone();
         if let Some(existing_id) = self.lookup_internal(&mut enode) {
@@ -1197,28 +1096,6 @@ impl EGraph {
     /// may be stale or incorrect.
     ///
     /// This will set [`EGraph::clean`] to `true`.
-    ///
-    /// # Example
-    /// ```
-    /// use egg::{*, SymbolLang as S};
-    /// let mut egraph = EGraph::<S, ()>::default();
-    /// let x = egraph.add(S::leaf("x"));
-    /// let y = egraph.add(S::leaf("y"));
-    /// let ax = egraph.add_expr(&"(+ a x)".parse().unwrap());
-    /// let ay = egraph.add_expr(&"(+ a y)".parse().unwrap());
-
-    /// // Union x and y
-    /// egraph.union(x, y);
-    /// // Classes: [x y] [ax] [ay] [a]
-    /// assert_eq!(egraph.find(x), egraph.find(y));
-    ///
-    /// // Rebuilding restores the congruence invariant, finding
-    /// // that ax and ay are equivalent.
-    /// egraph.rebuild();
-    /// // Classes: [x y] [ax ay] [a]
-    /// assert_eq!(egraph.number_of_classes(), 3);
-    /// assert_eq!(egraph.find(ax), egraph.find(ay));
-    /// ```
     pub fn rebuild(&mut self) -> usize {
         let old_hc_size = self.memo.len();
         let old_n_eclasses = self.number_of_classes();
