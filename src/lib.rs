@@ -5,12 +5,6 @@
 
 This is the API documentation.
 
-The [tutorial](tutorials) is a good starting point if you're new to
-e-graphs, equality saturation, or Rust.
-
-The [tests](https://github.com/egraphs-good/egg/tree/main/tests)
-on Github provide some more elaborate examples.
-
 There is also a [paper](https://arxiv.org/abs/2004.03082)
 describing `egg` and some of its technical novelties.
 
@@ -28,12 +22,8 @@ for less or more logging.
 #![doc = "## Simple Example\n```"]
 #![doc = "\n```"]
 
-mod macros;
-
 #[doc(hidden)]
 pub mod test;
-
-pub mod tutorials;
 
 mod dot;
 mod eclass;
@@ -55,8 +45,6 @@ mod util;
 /// A key to identify [`EClass`]es within an
 /// [`EGraph`].
 #[derive(Clone, Copy, Default, Ord, PartialOrd, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde-1", serde(transparent))]
 pub struct Id(u32);
 
 impl From<usize> for Id {

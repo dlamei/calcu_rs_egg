@@ -62,17 +62,17 @@ use crate::*;
 ///
 /// [`FromStr`]: std::str::FromStr
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Pattern<L> {
+pub struct Pattern {
     /// The actual pattern as a [`RecExpr`]
-    pub ast: PatternAst<L>,
-    program: machine::Program<L>,
+    pub ast: PatternAst,
+    program: machine::Program,
 }
 
 /// A [`RecExpr`] that represents a
 /// [`Pattern`].
-pub type PatternAst<L> = RecExpr<ENodeOrVar<L>>;
+pub type PatternAst = RecExpr<ENodeOrVar>;
 
-impl<L: Language> PatternAst<L> {
+impl PatternAst {
     /// Returns a new `PatternAst` with the variables renames canonically
     pub fn alpha_rename(&self) -> Self {
         let mut vars = HashMap::<Var, Var>::default();
@@ -100,9 +100,9 @@ impl<L: Language> PatternAst<L> {
     }
 }
 
-impl Pattern<Expr> {
+impl Pattern {
     /// Creates a new pattern from the given pattern ast.
-    pub fn new(ast: PatternAst<Expr>) -> Self {
+    pub fn new(ast: PatternAst) -> Self {
         let ast = ast.compact();
         let program = machine::Program::compile_from_pat(&ast);
         Pattern { ast, program }
@@ -122,7 +122,7 @@ impl Pattern<Expr> {
     }
 }
 
-impl<L: Language + Display> Pattern<L> {
+impl Pattern {
     /// Pretty print this pattern as a sexp with the given width
     pub fn pretty(&self, width: usize) -> String {
         self.ast.pretty(width)
@@ -132,22 +132,22 @@ impl<L: Language + Display> Pattern<L> {
 /// The language of [`Pattern`]s.
 ///
 #[derive(Debug, Hash, PartialEq, Eq, Clone, PartialOrd, Ord)]
-pub enum ENodeOrVar<L> {
+pub enum ENodeOrVar {
     /// An enode from the underlying [`Language`]
-    ENode(L),
+    ENode(Expr),
     /// A pattern variable
     Var(Var),
 }
 
 /// The discriminant for the language of [`Pattern`]s.
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub enum ENodeOrVarDiscriminant<L: Language> {
-    ENode(L::Discriminant),
+pub enum ENodeOrVarDiscriminant {
+    ENode(<Expr as Language>::Discriminant),
     Var(Var),
 }
 
-impl<L: Language> Language for ENodeOrVar<L> {
-    type Discriminant = ENodeOrVarDiscriminant<L>;
+impl Language for ENodeOrVar {
+    type Discriminant = ENodeOrVarDiscriminant;
 
     #[inline(always)]
     fn discriminant(&self) -> Self::Discriminant {
@@ -176,7 +176,7 @@ impl<L: Language> Language for ENodeOrVar<L> {
     }
 }
 
-impl<L: Language + Display> Display for ENodeOrVar<L> {
+impl Display for ENodeOrVar {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::ENode(node) => Display::fmt(node, f),
@@ -197,33 +197,7 @@ pub enum ENodeOrVarParseError<E> {
     BadOp(E),
 }
 
-//impl<L: FromOp> FromOp for ENodeOrVar<L> {
-//    type Error = ENodeOrVarParseError<L::Error>;
-//
-//    fn from_op(op: &str, children: Vec<Id>) -> Result<Self, Self::Error> {
-//        use ENodeOrVarParseError::*;
-//
-//        if op.starts_with('?') && op.len() > 1 {
-//            if children.is_empty() {
-//                op.parse().map(Self::Var).map_err(BadVar)
-//            } else {
-//                Err(UnexpectedVar(op.to_owned()))
-//            }
-//        } else {
-//            L::from_op(op, children).map(Self::ENode).map_err(BadOp)
-//        }
-//    }
-//}
-
-//impl<L: FromOp> std::str::FromStr for Pattern<L> {
-//    type Err = RecExprParseError<ENodeOrVarParseError<L::Error>>;
-//
-//    fn from_str(s: &str) -> Result<Self, Self::Err> {
-//        PatternAst::from_str(s).map(Self::from)
-//    }
-//}
-
-impl<'a> From<&'a [Expr]> for Pattern<Expr> {
+impl<'a> From<&'a [Expr]> for Pattern {
     fn from(expr: &'a [Expr]) -> Self {
         let nodes: Vec<_> = expr.iter().cloned().map(ENodeOrVar::ENode).collect();
         let ast = RecExpr::from(nodes);
@@ -231,21 +205,21 @@ impl<'a> From<&'a [Expr]> for Pattern<Expr> {
     }
 }
 
-impl From<&RecExpr<Expr>> for Pattern<Expr> {
+impl From<&RecExpr<Expr>> for Pattern {
     fn from(expr: &RecExpr<Expr>) -> Self {
         Self::from(expr.as_ref())
     }
 }
 
-impl From<PatternAst<Expr>> for Pattern<Expr> {
-    fn from(ast: PatternAst<Expr>) -> Self {
+impl From<PatternAst> for Pattern {
+    fn from(ast: PatternAst) -> Self {
         Self::new(ast)
     }
 }
 
-impl<L: Language> TryFrom<Pattern<L>> for RecExpr<L> {
+impl TryFrom<Pattern> for RecExpr<Expr> {
     type Error = Var;
-    fn try_from(pat: Pattern<L>) -> Result<Self, Self::Error> {
+    fn try_from(pat: Pattern) -> Result<Self, Self::Error> {
         let nodes = pat.ast.as_ref().iter().cloned();
         let ns: Result<Vec<_>, _> = nodes
             .map(|n| match n {
@@ -257,7 +231,7 @@ impl<L: Language> TryFrom<Pattern<L>> for RecExpr<L> {
     }
 }
 
-impl<L: Language + Display> Display for Pattern<L> {
+impl Display for Pattern {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.ast, f)
     }
@@ -271,21 +245,21 @@ impl<L: Language + Display> Display for Pattern<L> {
 /// many matches were found total.
 ///
 #[derive(Debug)]
-pub struct SearchMatches<'a, L: Language> {
+pub struct SearchMatches<'a> {
     /// The eclass id that these matches were found in.
     pub eclass: Id,
     /// The substitutions for each match.
     pub substs: Vec<Subst>,
     /// Optionally, an ast for the matches used in proof production.
-    pub ast: Option<Cow<'a, PatternAst<L>>>,
+    pub ast: Option<Cow<'a, PatternAst>>,
 }
 
-impl Searcher<Expr, ConstFolding> for Pattern<Expr> {
-    fn get_pattern_ast(&self) -> Option<&PatternAst<Expr>> {
+impl Searcher for Pattern {
+    fn get_pattern_ast(&self) -> Option<&PatternAst> {
         Some(&self.ast)
     }
 
-    fn search_with_limit(&self, egraph: &EGraph, limit: usize) -> Vec<SearchMatches<Expr>> {
+    fn search_with_limit(&self, egraph: &EGraph, limit: usize) -> Vec<SearchMatches> {
         match self.ast.as_ref().last().unwrap() {
             ENodeOrVar::ENode(e) => {
                 let key = e.discriminant();
@@ -313,7 +287,7 @@ impl Searcher<Expr, ConstFolding> for Pattern<Expr> {
         egraph: &EGraph,
         eclass: Id,
         limit: usize,
-    ) -> Option<SearchMatches<Expr>> {
+    ) -> Option<SearchMatches> {
         let substs = self.program.run_with_limit(egraph, eclass, limit);
         if substs.is_empty() {
             None
@@ -332,16 +306,16 @@ impl Searcher<Expr, ConstFolding> for Pattern<Expr> {
     }
 }
 
-impl Applier<Expr, ConstFolding> for Pattern<Expr>
+impl Applier for Pattern
 {
-    fn get_pattern_ast(&self) -> Option<&PatternAst<Expr>> {
+    fn get_pattern_ast(&self) -> Option<&PatternAst> {
         Some(&self.ast)
     }
 
     fn apply_matches(
         &self,
         egraph: &mut EGraph,
-        matches: &[SearchMatches<Expr>],
+        matches: &[SearchMatches],
         rule_name: Symbol,
     ) -> Vec<Id> {
         let mut added = vec![];
@@ -375,7 +349,7 @@ impl Applier<Expr, ConstFolding> for Pattern<Expr>
         egraph: &mut EGraph,
         eclass: Id,
         subst: &Subst,
-        searcher_ast: Option<&PatternAst<Expr>>,
+        searcher_ast: Option<&PatternAst>,
         rule_name: Symbol,
     ) -> Vec<Id> {
         let ast = self.ast.as_ref();
@@ -404,7 +378,7 @@ impl Applier<Expr, ConstFolding> for Pattern<Expr>
 
 pub(crate) fn apply_pat(
     ids: &mut [Id],
-    pat: &[ENodeOrVar<Expr>],
+    pat: &[ENodeOrVar],
     egraph: &mut EGraph,
     subst: &Subst,
 ) -> Id {

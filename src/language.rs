@@ -31,9 +31,9 @@ impl std::fmt::Display for Expr {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ConstFolding;
+pub struct ExprAnalysis;
 
-impl Analysis for ConstFolding {
+impl Analysis for ExprAnalysis {
     type Data = Option<i32>;
 
     fn make(egraph: &mut EGraph, enode: &Expr) -> Self::Data {
@@ -85,10 +85,6 @@ impl Language for Expr {
 /// If you want to pretty-print expressions, you should implement [`Display`] to
 /// display the language node's operator. For example, a language node
 /// `Add([Id; 2])` might be displayed as "+".
-///
-/// To parse expressions from strings you should also implement [`FromOp`].
-///
-/// See [`SymbolLang`] for quick-and-dirty use cases.
 #[allow(clippy::len_without_is_empty)]
 pub trait Language: Debug + Clone + Eq + Ord + Hash {
     /// Type representing the cases of this language.
@@ -363,22 +359,9 @@ impl LanguageChildren for Id {
 /// `(+ (* x 5) x)` could be represented by a recursive expression of the form
 /// `[Num(5), Var("x"), Mul(1, 0), Add(2, 1)]`.
 ///
-/// If the `serde-1` feature is enabled, this implements
-/// [`serde::Serialize`](https://docs.rs/serde/latest/serde/trait.Serialize.html).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RecExpr<L> {
     nodes: Vec<L>,
-}
-
-#[cfg(feature = "serde-1")]
-impl<L: Language + Display> serde::Serialize for RecExpr<L> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let s = self.to_sexp().to_string();
-        serializer.serialize_str(&s)
-    }
 }
 
 impl<L> Default for RecExpr<L> {
@@ -784,54 +767,5 @@ pub fn merge_option<T>(
         }
         (Some(_), None) => DidMerge(false, true),
         (Some(a), Some(b)) => merge_fn(a, b),
-    }
-}
-
-/// A simple language used for testing.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
-pub struct SymbolLang {
-    /// The operator for an enode
-    pub op: Symbol,
-    /// The enode's children `Id`s
-    pub children: Vec<Id>,
-}
-
-impl SymbolLang {
-    /// Create an enode with the given string and children
-    pub fn new(op: impl Into<Symbol>, children: Vec<Id>) -> Self {
-        let op = op.into();
-        Self { op, children }
-    }
-
-    /// Create childless enode with the given string
-    pub fn leaf(op: impl Into<Symbol>) -> Self {
-        Self::new(op, vec![])
-    }
-}
-
-impl Language for SymbolLang {
-    type Discriminant = Symbol;
-
-    fn discriminant(&self) -> Self::Discriminant {
-        self.op
-    }
-
-    fn matches(&self, other: &Self) -> bool {
-        self.op == other.op && self.len() == other.len()
-    }
-
-    fn children(&self) -> &[Id] {
-        &self.children
-    }
-
-    fn children_mut(&mut self) -> &mut [Id] {
-        &mut self.children
-    }
-}
-
-impl Display for SymbolLang {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.op, f)
     }
 }

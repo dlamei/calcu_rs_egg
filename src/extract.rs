@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use crate::util::{hashmap_with_capacity, HashMap};
-use crate::{Analysis, ConstFolding, EClass, EGraph, Expr, Id, Language, RecExpr};
+use crate::{Analysis, ExprAnalysis, EClass, EGraph, Expr, Id, Language, RecExpr};
 
 /** Extracting a single [`RecExpr`] from an [`EGraph`].
 
@@ -38,9 +38,9 @@ assert_eq!(best, "10".parse().unwrap());
 
 **/
 #[derive(Debug)]
-pub struct Extractor<'a, CF: CostFunction<L>, L: Language> {
+pub struct Extractor<'a, CF: CostFunction> {
     cost_function: CF,
-    costs: HashMap<Id, (CF::Cost, L)>,
+    costs: HashMap<Id, (CF::Cost, Expr)>,
     egraph: &'a EGraph,
 }
 
@@ -113,7 +113,7 @@ even if the actual [`RecExpr`] fits compactly in memory.
 You might want to use [`saturating_add`](u64::saturating_add) to
 ensure your cost function is still monotonic in this situation.
 **/
-pub trait CostFunction<L: Language> {
+pub trait CostFunction {
     /// The `Cost` type. It only requires `PartialOrd` so you can use
     /// floating point types, but failed comparisons (`NaN`s) will
     /// result in a panic.
@@ -124,7 +124,7 @@ pub trait CostFunction<L: Language> {
     /// For this to work properly, your cost function should be
     /// _monotonic_, i.e. `cost` should return a `Cost` greater than
     /// any of the child costs of the given enode.
-    fn cost<C>(&mut self, enode: &L, costs: C) -> Self::Cost
+    fn cost<C>(&mut self, enode: &Expr, costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost;
 
@@ -133,7 +133,7 @@ pub trait CostFunction<L: Language> {
     /// As provided, this just recursively calls `cost` all the way
     /// down the [`RecExpr`].
     ///
-    fn cost_rec(&mut self, expr: &RecExpr<L>) -> Self::Cost {
+    fn cost_rec(&mut self, expr: &RecExpr<Expr>) -> Self::Cost {
         let nodes = expr.as_ref();
         let mut costs = hashmap_with_capacity::<Id, Self::Cost>(nodes.len());
         for (i, node) in nodes.iter().enumerate() {
@@ -156,9 +156,9 @@ assert_eq!(AstSize.cost_rec(&e), 4);
 **/
 #[derive(Debug)]
 pub struct AstSize;
-impl<L: Language> CostFunction<L> for AstSize {
+impl CostFunction for AstSize {
     type Cost = usize;
-    fn cost<C>(&mut self, enode: &L, mut costs: C) -> Self::Cost
+    fn cost<C>(&mut self, enode: &Expr, mut costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost,
     {
@@ -177,9 +177,9 @@ assert_eq!(AstDepth.cost_rec(&e), 2);
 **/
 #[derive(Debug)]
 pub struct AstDepth;
-impl<L: Language> CostFunction<L> for AstDepth {
+impl CostFunction for AstDepth {
     type Cost = usize;
-    fn cost<C>(&mut self, enode: &L, mut costs: C) -> Self::Cost
+    fn cost<C>(&mut self, enode: &Expr, mut costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost,
     {
@@ -197,9 +197,9 @@ fn cmp<T: PartialOrd>(a: &Option<T>, b: &Option<T>) -> Ordering {
     }
 }
 
-impl<'a, CF> Extractor<'a, CF, Expr>
+impl<'a, CF> Extractor<'a, CF>
 where
-    CF: CostFunction<Expr>,
+    CF: CostFunction,
 {
     /// Create a new `Extractor` given an `EGraph` and a
     /// `CostFunction`.
@@ -282,7 +282,7 @@ where
         }
     }
 
-    fn make_pass(&mut self, eclass: &EClass<<ConstFolding as Analysis>::Data>) -> Option<(CF::Cost, Expr)> {
+    fn make_pass(&mut self, eclass: &EClass<<ExprAnalysis as Analysis>::Data>) -> Option<(CF::Cost, Expr)> {
         let (cost, node) = eclass
             .iter()
             .map(|n| (self.node_total_cost(n), n))

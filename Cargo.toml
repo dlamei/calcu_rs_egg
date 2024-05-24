@@ -28,7 +28,7 @@ num-traits = "0.2"
 coin_cbc = { version = "0.1.6", optional = true }
 
 # for the serde-1 feature
-serde = { version = "1.0.137", features = ["derive"], optional = true }
+# serde = { version = "1.0.137", features = ["derive"], optional = true }
 vectorize = { version = "0.2.0", optional = true }
 
 # for the reports feature
@@ -42,14 +42,14 @@ ordered-float = "3.0.0"
 # forces the use of indexmaps over hashmaps
 deterministic = []
 lp = ["coin_cbc"]
-reports = ["serde-1", "serde_json"]
-serde-1 = [
-  "serde",
-  "indexmap/serde-1",
-  "hashbrown/serde",
-  "symbol_table/serde",
-  "vectorize",
-]
+# reports = ["serde-1", "serde_json"]
+# serde-1 = [
+#   "serde",
+#   "indexmap/serde-1",
+#   "hashbrown/serde",
+#   "symbol_table/serde",
+#   "vectorize",
+# ]
 wasm-bindgen = ["instant/wasm-bindgen"]
 
 # private features for testing

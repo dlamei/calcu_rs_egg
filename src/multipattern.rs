@@ -22,12 +22,12 @@ use crate::*;
 ///
 /// Multipatterns currently do not support the explanations feature.
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct MultiPattern<L> {
-    asts: Vec<(Var, PatternAst<L>)>,
-    program: machine::Program<L>,
+pub struct MultiPattern {
+    asts: Vec<(Var, PatternAst)>,
+    program: machine::Program,
 }
 
-impl MultiPattern<Expr> {
+impl MultiPattern {
     /// Creates a new multipattern, binding the given patterns to the corresponding variables.
     ///
     /// ```
@@ -51,7 +51,7 @@ impl MultiPattern<Expr> {
     ///
     /// assert_eq!(multipattern.n_matches(&egraph), 2);
     /// ```
-    pub fn new(asts: Vec<(Var, PatternAst<Expr>)>) -> Self {
+    pub fn new(asts: Vec<(Var, PatternAst)>) -> Self {
         let program = machine::Program::compile_from_multi_pat(&asts);
         Self { asts, program }
     }
@@ -71,42 +71,13 @@ pub enum MultiPatternParseError<E> {
     VariableError(<Var as FromStr>::Err),
 }
 
-//impl<L: Language + FromOp> FromStr for MultiPattern<L> {
-//    type Err = MultiPatternParseError<<PatternAst<L> as FromStr>::Err>;
-//
-//    fn from_str(s: &str) -> Result<Self, Self::Err> {
-//        use MultiPatternParseError::*;
-//        let mut asts = vec![];
-//        for split in s.trim().split(',') {
-//            let split = split.trim();
-//            if split.is_empty() {
-//                continue;
-//            }
-//            let mut parts = split.split('=');
-//            let vs: &str = parts
-//                .next()
-//                .ok_or_else(|| PatternAssignmentError(split.into()))?;
-//            let v: Var = vs.trim().parse().map_err(VariableError)?;
-//            let ps = parts
-//                .map(|p| p.trim().parse())
-//                .collect::<Result<Vec<PatternAst<L>>, _>>()
-//                .map_err(PatternParseError)?;
-//            if ps.is_empty() {
-//                return Err(PatternAssignmentError(split.into()));
-//            }
-//            asts.extend(ps.into_iter().map(|p| (v, p)))
-//        }
-//        Ok(MultiPattern::new(asts))
-//    }
-//}
-
-impl Searcher<Expr, ConstFolding> for MultiPattern<Expr> {
+impl Searcher for MultiPattern {
     fn search_eclass_with_limit(
         &self,
         egraph: &EGraph,
         eclass: Id,
         limit: usize,
-    ) -> Option<SearchMatches<Expr>> {
+    ) -> Option<SearchMatches> {
         let substs = self.program.run_with_limit(egraph, eclass, limit);
         if substs.is_empty() {
             None
@@ -135,13 +106,13 @@ impl Searcher<Expr, ConstFolding> for MultiPattern<Expr> {
     }
 }
 
-impl Applier<Expr, ConstFolding> for MultiPattern<Expr> {
+impl Applier for MultiPattern {
     fn apply_one(
         &self,
         _egraph: &mut EGraph,
         _eclass: Id,
         _subst: &Subst,
-        _searcher_ast: Option<&PatternAst<Expr>>,
+        _searcher_ast: Option<&PatternAst>,
         _rule_name: Symbol,
     ) -> Vec<Id> {
         panic!("Multipatterns do not support apply_one")
@@ -150,7 +121,7 @@ impl Applier<Expr, ConstFolding> for MultiPattern<Expr> {
     fn apply_matches(
         &self,
         egraph: &mut EGraph,
-        matches: &[SearchMatches<Expr>],
+        matches: &[SearchMatches],
         _rule_name: Symbol,
     ) -> Vec<Id> {
         // TODO explanations?

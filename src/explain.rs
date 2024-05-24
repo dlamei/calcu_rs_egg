@@ -1,4 +1,4 @@
-use crate::Symbol;
+use crate::{Expr, ExprAnalysis, Symbol};
 use crate::{
     util::pretty_print, Analysis, EClass, ENodeOrVar, HashMap, HashSet, Id, Language,
     PatternAst, RecExpr, Rewrite, UnionFind, Var,
@@ -23,7 +23,6 @@ const GREEDY_NUM_ITERS: usize = 2;
 /// A justification for a union, either via a rule or congruence.
 /// A direct union with a justification is also stored as a rule.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
 pub enum Justification {
     /// Justification by a rule with this name.
     Rule(Symbol),
@@ -32,7 +31,6 @@ pub enum Justification {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
 struct Connection {
     next: Id,
     current: Id,
@@ -41,7 +39,6 @@ struct Connection {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
 struct ExplainNode {
     // neighbors includes parent connections
     neighbors: Vec<Connection>,
@@ -55,18 +52,9 @@ struct ExplainNode {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
-pub struct Explain<L: Language> {
+pub struct Explain {
     explainfind: Vec<ExplainNode>,
-    #[cfg_attr(feature = "serde-1", serde(with = "vectorize"))]
-    #[cfg_attr(
-        feature = "serde-1",
-        serde(bound(
-            serialize = "L: serde::Serialize",
-            deserialize = "L: serde::Deserialize<'de>",
-        ))
-    )]
-    pub uncanon_memo: HashMap<L, Id>,
+    pub uncanon_memo: HashMap<Expr, Id>,
     /// By default, egg uses a greedy algorithm to find shorter explanations when they are extracted.
     pub optimize_explanation_lengths: bool,
     // For a given pair of enodes in the same eclass,
@@ -75,13 +63,12 @@ pub struct Explain<L: Language> {
     // the explanation.
     // Invariant: The distance is always <= the unoptimized distance
     // That is, less than or equal to the result of `distance_between`
-    #[cfg_attr(feature = "serde-1", serde(skip))]
     shortest_explanation_memo: HashMap<(Id, Id), (ProofCost, Id)>,
 }
 
-pub(crate) struct ExplainNodes<'a, L: Language> {
-    explain: &'a mut Explain<L>,
-    nodes: &'a [L],
+pub(crate) struct ExplainNodes<'a> {
+    explain: &'a mut Explain,
+    nodes: &'a [Expr],
 }
 
 #[derive(Default)]
@@ -101,7 +88,7 @@ struct DistanceMemo {
 ///
 /// See [`TreeTerm`] for more details on how to
 /// interpret each term.
-pub type TreeExplanation<L> = Vec<Rc<TreeTerm<L>>>;
+pub type TreeExplanation = Vec<Rc<TreeTerm>>;
 
 /// FlatExplanation are the simpler, expanded representation
 /// showing one term being rewritten to another.
@@ -109,15 +96,15 @@ pub type TreeExplanation<L> = Vec<Rc<TreeTerm<L>>>;
 /// is connected to the previous by exactly one rewrite.
 ///
 /// See [`FlatTerm`] for more details on how to find this rewrite.
-pub type FlatExplanation<L> = Vec<FlatTerm<L>>;
+pub type FlatExplanation = Vec<FlatTerm>;
 
 /// A vector of equalities based on enode ids. Each entry represents
 /// two enode ids that are equal and why.
 pub type UnionEqualities = Vec<(Id, Id, Symbol)>;
 
 // given two adjacent nodes and the direction of the proof
-type ExplainCache<L> = HashMap<(Id, Id), Rc<TreeTerm<L>>>;
-type NodeExplanationCache<L> = HashMap<Id, Rc<TreeTerm<L>>>;
+type ExplainCache = HashMap<(Id, Id), Rc<TreeTerm>>;
+type NodeExplanationCache = HashMap<Id, Rc<TreeTerm>>;
 
 /** A data structure representing an explanation that two terms are equivalent.
 
@@ -125,20 +112,20 @@ There are two representations of explanations, each of which can be
 represented as s-expressions in strings.
 See [`Explanation`] for more details.
 **/
-pub struct Explanation<L: Language> {
+pub struct Explanation {
     /// The tree representation of the explanation.
-    pub explanation_trees: TreeExplanation<L>,
-    flat_explanation: Option<FlatExplanation<L>>,
+    pub explanation_trees: TreeExplanation,
+    flat_explanation: Option<FlatExplanation>,
 }
 
-impl<L: Language + Display> Display for Explanation<L> {
+impl Display for Explanation {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = self.get_sexp().to_string();
         f.write_str(&s)
     }
 }
 
-impl<L: Language + Display> Explanation<L> {
+impl Explanation {
     /// Get each flattened term in the explanation as an s-expression string.
     ///
     /// The s-expression format mirrors the format of each [`FlatTerm`].
@@ -264,11 +251,11 @@ impl<L: Language + Display> Explanation<L> {
 
     fn tree_size(
         &self,
-        seen: &mut HashSet<*const TreeTerm<L>>,
+        seen: &mut HashSet<*const TreeTerm>,
         seen_adjacent: &mut HashSet<(Id, Id)>,
-        current: &Rc<TreeTerm<L>>,
+        current: &Rc<TreeTerm>,
     ) -> ProofCost {
-        if !seen.insert(&**current as *const TreeTerm<L>) {
+        if !seen.insert(&**current as *const TreeTerm) {
             return BigUint::zero();
         }
         let mut my_size: ProofCost = BigUint::zero();
@@ -296,26 +283,26 @@ impl<L: Language + Display> Explanation<L> {
     }
 
     fn get_sexp_with_let(&self) -> Sexp {
-        let mut shared: HashSet<*const TreeTerm<L>> = Default::default();
+        let mut shared: HashSet<*const TreeTerm> = Default::default();
         let mut to_let_bind = vec![];
         for term in &self.explanation_trees {
             self.find_to_let_bind(term.clone(), &mut shared, &mut to_let_bind);
         }
 
-        let mut bindings: HashMap<*const TreeTerm<L>, Sexp> = Default::default();
+        let mut bindings: HashMap<*const TreeTerm, Sexp> = Default::default();
         let mut generated_bindings: Vec<(Sexp, Sexp)> = Default::default();
         for to_bind in to_let_bind {
-            if bindings.get(&(&*to_bind as *const TreeTerm<L>)).is_none() {
+            if bindings.get(&(&*to_bind as *const TreeTerm)).is_none() {
                 let name = Sexp::String("v_".to_string() + &generated_bindings.len().to_string());
                 let ast = to_bind.get_sexp_with_bindings(&bindings);
                 generated_bindings.push((name.clone(), ast));
-                bindings.insert(&*to_bind as *const TreeTerm<L>, name);
+                bindings.insert(&*to_bind as *const TreeTerm, name);
             }
         }
 
         let mut items = vec![Sexp::String("Explanation".to_string())];
         for e in self.explanation_trees.iter() {
-            if let Some(existing) = bindings.get(&(&**e as *const TreeTerm<L>)) {
+            if let Some(existing) = bindings.get(&(&**e as *const TreeTerm)) {
                 items.push(existing.clone());
             } else {
                 items.push(e.get_sexp_with_bindings(&bindings));
@@ -336,12 +323,12 @@ impl<L: Language + Display> Explanation<L> {
     // multiple places, add it to to_let_bind
     fn find_to_let_bind(
         &self,
-        term: Rc<TreeTerm<L>>,
-        shared: &mut HashSet<*const TreeTerm<L>>,
-        to_let_bind: &mut Vec<Rc<TreeTerm<L>>>,
+        term: Rc<TreeTerm>,
+        shared: &mut HashSet<*const TreeTerm>,
+        to_let_bind: &mut Vec<Rc<TreeTerm>>,
     ) {
         if !term.child_proofs.is_empty() {
-            if shared.insert(&*term as *const TreeTerm<L>) {
+            if shared.insert(&*term as *const TreeTerm) {
                 for proof in &term.child_proofs {
                     for child in proof {
                         self.find_to_let_bind(child.clone(), shared, to_let_bind);
@@ -354,9 +341,9 @@ impl<L: Language + Display> Explanation<L> {
     }
 }
 
-impl<L: Language> Explanation<L> {
+impl Explanation {
     /// Construct a new explanation given its tree representation.
-    pub fn new(explanation_trees: TreeExplanation<L>) -> Explanation<L> {
+    pub fn new(explanation_trees: TreeExplanation) -> Explanation {
         Explanation {
             explanation_trees,
             flat_explanation: None,
@@ -364,7 +351,7 @@ impl<L: Language> Explanation<L> {
     }
 
     /// Construct the flat representation of the explanation and return it.
-    pub fn make_flat_explanation(&mut self) -> &FlatExplanation<L> {
+    pub fn make_flat_explanation(&mut self) -> &FlatExplanation {
         if self.flat_explanation.is_some() {
             return self.flat_explanation.as_ref().unwrap();
         } else {
@@ -377,11 +364,10 @@ impl<L: Language> Explanation<L> {
     /// This only is able to check rule applications when the rules are implement `get_pattern_ast`.
     pub fn check_proof<'a, R, N: Analysis>(&mut self, rules: R)
     where
-        R: IntoIterator<Item = &'a Rewrite<L, N>>,
-        L: 'a,
+        R: IntoIterator<Item = &'a Rewrite>,
         N: 'a,
     {
-        let rules: Vec<&Rewrite<L, N>> = rules.into_iter().collect();
+        let rules: Vec<&Rewrite> = rules.into_iter().collect();
         let rule_table = Explain::make_rule_table(rules.as_slice());
         self.make_flat_explanation();
         let flat_explanation = self.flat_explanation.as_ref().unwrap();
@@ -403,11 +389,11 @@ impl<L: Language> Explanation<L> {
         }
     }
 
-    fn check_rewrite_at<N: Analysis>(
+    fn check_rewrite_at(
         &self,
-        current: &FlatTerm<L>,
-        next: &FlatTerm<L>,
-        table: &HashMap<Symbol, &Rewrite<L, N>>,
+        current: &FlatTerm,
+        next: &FlatTerm,
+        table: &HashMap<Symbol, &Rewrite>,
         is_forward: bool,
     ) -> bool {
         if is_forward && next.forward_rule.is_some() {
@@ -436,10 +422,10 @@ impl<L: Language> Explanation<L> {
     }
 
     // if the rewrite is just patterns, then it can check it
-    fn check_rewrite<'a, N: Analysis>(
-        current: &'a FlatTerm<L>,
-        next: &'a FlatTerm<L>,
-        rewrite: &Rewrite<L, N>,
+    fn check_rewrite<'a>(
+        current: &'a FlatTerm,
+        next: &'a FlatTerm,
+        rewrite: &Rewrite,
     ) -> bool {
         if let Some(lhs) = rewrite.searcher.get_pattern_ast() {
             if let Some(rhs) = rewrite.applier.get_pattern_ast() {
@@ -468,23 +454,23 @@ impl<L: Language> Explanation<L> {
 /// TreeTerms are flattened by first flattening [`child_proofs`](TreeTerm::child_proofs), then wrapping
 /// the flattened proof with this TreeTerm's node.
 #[derive(Debug, Clone)]
-pub struct TreeTerm<L: Language> {
+pub struct TreeTerm {
     /// A node representing this TreeTerm's operator. The children of the node should be ignored.
-    pub node: L,
+    pub node: Expr,
     /// A rule rewriting this TreeTerm's initial term back to the last TreeTerm's final term.
     pub backward_rule: Option<Symbol>,
     /// A rule rewriting the last TreeTerm's final term to this TreeTerm's initial term.
     pub forward_rule: Option<Symbol>,
     /// A list of child proofs, each transforming the initial term to the final term for that child.
-    pub child_proofs: Vec<TreeExplanation<L>>,
+    pub child_proofs: Vec<TreeExplanation>,
 
     last: Id,
     current: Id,
 }
 
-impl<L: Language> TreeTerm<L> {
+impl TreeTerm {
     /// Construct a new TreeTerm given its node and child_proofs.
-    pub fn new(node: L, child_proofs: Vec<TreeExplanation<L>>) -> TreeTerm<L> {
+    pub fn new(node: Expr, child_proofs: Vec<TreeExplanation>) -> TreeTerm {
         TreeTerm {
             node,
             backward_rule: None,
@@ -495,8 +481,8 @@ impl<L: Language> TreeTerm<L> {
         }
     }
 
-    fn flatten_proof(proof: &[Rc<TreeTerm<L>>]) -> FlatExplanation<L> {
-        let mut flat_proof: FlatExplanation<L> = vec![];
+    fn flatten_proof(proof: &[Rc<TreeTerm>]) -> FlatExplanation {
+        let mut flat_proof: FlatExplanation = vec![];
         for tree in proof {
             let mut explanation = tree.flatten_explanation();
 
@@ -515,7 +501,7 @@ impl<L: Language> TreeTerm<L> {
     }
 
     /// Get a FlatTerm representing the first term in this proof.
-    pub fn get_initial_flat_term(&self) -> FlatTerm<L> {
+    pub fn get_initial_flat_term(&self) -> FlatTerm {
         FlatTerm {
             node: self.node.clone(),
             backward_rule: self.backward_rule,
@@ -529,7 +515,7 @@ impl<L: Language> TreeTerm<L> {
     }
 
     /// Get a FlatTerm representing the final term in this proof.
-    pub fn get_last_flat_term(&self) -> FlatTerm<L> {
+    pub fn get_last_flat_term(&self) -> FlatTerm {
         FlatTerm {
             node: self.node.clone(),
             backward_rule: self.backward_rule,
@@ -543,7 +529,7 @@ impl<L: Language> TreeTerm<L> {
     }
 
     /// Construct the [`FlatExplanation`] for this TreeTerm.
-    pub fn flatten_explanation(&self) -> FlatExplanation<L> {
+    pub fn flatten_explanation(&self) -> FlatExplanation {
         let mut proof = vec![];
         let mut child_proofs = vec![];
         let mut representative_terms = vec![];
@@ -598,27 +584,27 @@ impl<L: Language> TreeTerm<L> {
 /// [`union_instantiations`](super::EGraph::union_instantiations).
 ///
 #[derive(Debug, Clone, Eq)]
-pub struct FlatTerm<L: Language> {
+pub struct FlatTerm {
     /// The node representing this FlatTerm's operator.
     /// The children of the node should be ignored.
-    pub node: L,
+    pub node: Expr,
     /// A rule rewriting this FlatTerm back to the last FlatTerm.
     pub backward_rule: Option<Symbol>,
     /// A rule rewriting the last FlatTerm to this FlatTerm.
     pub forward_rule: Option<Symbol>,
     /// The children of this FlatTerm.
-    pub children: FlatExplanation<L>,
+    pub children: FlatExplanation,
 }
 
-impl<L: Language + Display> Display for FlatTerm<L> {
+impl Display for FlatTerm {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = self.get_sexp().to_string();
         write!(f, "{}", s)
     }
 }
 
-impl<L: Language> PartialEq for FlatTerm<L> {
-    fn eq(&self, other: &FlatTerm<L>) -> bool {
+impl PartialEq for FlatTerm {
+    fn eq(&self, other: &FlatTerm) -> bool {
         if !self.node.matches(&other.node) {
             return false;
         }
@@ -632,9 +618,9 @@ impl<L: Language> PartialEq for FlatTerm<L> {
     }
 }
 
-impl<L: Language> FlatTerm<L> {
+impl FlatTerm {
     /// Remove the rewrite annotation from this flatterm, if any.
-    pub fn remove_rewrites(&self) -> FlatTerm<L> {
+    pub fn remove_rewrites(&self) -> FlatTerm {
         FlatTerm::new(
             self.node.clone(),
             self.children
@@ -644,7 +630,7 @@ impl<L: Language> FlatTerm<L> {
         )
     }
 
-    fn combine_rewrites(&mut self, other: &FlatTerm<L>) {
+    fn combine_rewrites(&mut self, other: &FlatTerm) {
         if other.forward_rule.is_some() {
             assert!(self.forward_rule.is_none());
             self.forward_rule = other.forward_rule;
@@ -661,13 +647,13 @@ impl<L: Language> FlatTerm<L> {
     }
 }
 
-impl<L: Language> Default for Explain<L> {
+impl Default for Explain {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<L: Language + Display> FlatTerm<L> {
+impl FlatTerm {
     /// Convert this FlatTerm to an S-expression.
     /// See [`get_flat_string`](Explanation::get_flat_string) for the format of these expressions.
     pub fn get_string(&self) -> String {
@@ -704,14 +690,9 @@ impl<L: Language + Display> FlatTerm<L> {
 
         expr
     }
-
-    // Convert this FlatTerm to a RecExpr.
-    //pub fn get_recexpr(&self) -> RecExpr<L> {
-    //    self.remove_rewrites().to_string().parse().unwrap()
-    //}
 }
 
-impl<L: Language + Display> Display for TreeTerm<L> {
+impl Display for TreeTerm {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut buf = String::new();
         let width = 80;
@@ -720,13 +701,13 @@ impl<L: Language + Display> Display for TreeTerm<L> {
     }
 }
 
-impl<L: Language + Display> TreeTerm<L> {
+impl TreeTerm {
     /// Convert this TreeTerm to an S-expression.
     fn get_sexp(&self) -> Sexp {
         self.get_sexp_with_bindings(&Default::default())
     }
 
-    fn get_sexp_with_bindings(&self, bindings: &HashMap<*const TreeTerm<L>, Sexp>) -> Sexp {
+    fn get_sexp_with_bindings(&self, bindings: &HashMap<*const TreeTerm, Sexp>) -> Sexp {
         let op = Sexp::String(self.node.to_string());
         let mut expr = if self.node.is_leaf() {
             op
@@ -735,7 +716,7 @@ impl<L: Language + Display> TreeTerm<L> {
             for child in &self.child_proofs {
                 assert!(!child.is_empty());
                 if child.len() == 1 {
-                    if let Some(existing) = bindings.get(&(&*child[0] as *const TreeTerm<L>)) {
+                    if let Some(existing) = bindings.get(&(&*child[0] as *const TreeTerm)) {
                         vec.push(existing.clone());
                     } else {
                         vec.push(child[0].get_sexp_with_bindings(bindings));
@@ -744,7 +725,7 @@ impl<L: Language + Display> TreeTerm<L> {
                     let mut child_expressions = vec![Sexp::String("Explanation".to_string())];
                     for child_explanation in child.iter() {
                         if let Some(existing) =
-                            bindings.get(&(&**child_explanation as *const TreeTerm<L>))
+                            bindings.get(&(&**child_explanation as *const TreeTerm))
                         {
                             child_expressions.push(existing.clone());
                         } else {
@@ -778,9 +759,9 @@ impl<L: Language + Display> TreeTerm<L> {
     }
 }
 
-impl<L: Language> FlatTerm<L> {
+impl FlatTerm {
     /// Construct a new FlatTerm given a node and its children.
-    pub fn new(node: L, children: FlatExplanation<L>) -> FlatTerm<L> {
+    pub fn new(node: Expr, children: FlatExplanation) -> FlatTerm {
         FlatTerm {
             node,
             backward_rule: None,
@@ -791,7 +772,7 @@ impl<L: Language> FlatTerm<L> {
 
     /// Rewrite the FlatTerm by matching the lhs and substituting the rhs.
     /// The lhs must be guaranteed to match.
-    pub fn rewrite(&self, lhs: &PatternAst<L>, rhs: &PatternAst<L>) -> FlatTerm<L> {
+    pub fn rewrite(&self, lhs: &PatternAst, rhs: &PatternAst) -> FlatTerm {
         let lhs_nodes = lhs.as_ref();
         let rhs_nodes = rhs.as_ref();
         let mut bindings = Default::default();
@@ -818,10 +799,10 @@ impl<L: Language> FlatTerm<L> {
     }
 
     fn from_pattern(
-        pattern: &[ENodeOrVar<L>],
+        pattern: &[ENodeOrVar],
         location: usize,
-        bindings: &HashMap<Var, &FlatTerm<L>>,
-    ) -> FlatTerm<L> {
+        bindings: &HashMap<Var, &FlatTerm>,
+    ) -> FlatTerm {
         match &pattern[location] {
             ENodeOrVar::Var(var) => (*bindings.get(var).unwrap()).clone(),
             ENodeOrVar::ENode(node) => {
@@ -840,9 +821,9 @@ impl<L: Language> FlatTerm<L> {
 
     fn make_bindings<'a>(
         &'a self,
-        pattern: &[ENodeOrVar<L>],
+        pattern: &[ENodeOrVar],
         location: usize,
-        bindings: &mut HashMap<Var, &'a FlatTerm<L>>,
+        bindings: &mut HashMap<Var, &'a FlatTerm>,
     ) {
         match &pattern[location] {
             ENodeOrVar::Var(var) => {
@@ -897,11 +878,11 @@ impl<I: Eq + PartialEq> PartialOrd for HeapState<I> {
     }
 }
 
-impl<L: Language> Explain<L> {
-    fn make_rule_table<'a, N: Analysis>(
-        rules: &[&'a Rewrite<L, N>],
-    ) -> HashMap<Symbol, &'a Rewrite<L, N>> {
-        let mut table: HashMap<Symbol, &'a Rewrite<L, N>> = Default::default();
+impl Explain {
+    fn make_rule_table<'a>(
+        rules: &[&'a Rewrite],
+    ) -> HashMap<Symbol, &'a Rewrite> {
+        let mut table: HashMap<Symbol, &'a Rewrite> = Default::default();
         for r in rules {
             table.insert(r.name, r);
         }
@@ -920,7 +901,7 @@ impl<L: Language> Explain<L> {
         self.explainfind[usize::from(node)].existance_node = existance_node;
     }
 
-    pub(crate) fn add(&mut self, node: L, set: Id, existance_node: Id) -> Id {
+    pub(crate) fn add(&mut self, node: Expr, set: Id, existance_node: Id) -> Id {
         assert_eq!(self.explainfind.len(), usize::from(set));
         self.uncanon_memo.insert(node, set);
         self.explainfind.push(ExplainNode {
@@ -1046,7 +1027,7 @@ impl<L: Language> Explain<L> {
         equalities
     }
 
-    pub(crate) fn with_nodes<'a>(&'a mut self, nodes: &'a [L]) -> ExplainNodes<'a, L> {
+    pub(crate) fn with_nodes<'a>(&'a mut self, nodes: &'a [Expr]) -> ExplainNodes<'a> {
         ExplainNodes {
             explain: self,
             nodes,
@@ -1054,29 +1035,29 @@ impl<L: Language> Explain<L> {
     }
 }
 
-impl<'a, L: Language> Deref for ExplainNodes<'a, L> {
-    type Target = Explain<L>;
+impl<'a> Deref for ExplainNodes<'a> {
+    type Target = Explain;
 
     fn deref(&self) -> &Self::Target {
         self.explain
     }
 }
 
-impl<'a, L: Language> DerefMut for ExplainNodes<'a, L> {
+impl<'a> DerefMut for ExplainNodes<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut *self.explain
     }
 }
 
-impl<'x, L: Language> ExplainNodes<'x, L> {
-    pub(crate) fn node(&self, node_id: Id) -> &L {
+impl<'x> ExplainNodes<'x> {
+    pub(crate) fn node(&self, node_id: Id) -> &Expr {
         &self.nodes[usize::from(node_id)]
     }
     fn node_to_explanation(
         &self,
         node_id: Id,
-        cache: &mut NodeExplanationCache<L>,
-    ) -> Rc<TreeTerm<L>> {
+        cache: &mut NodeExplanationCache,
+    ) -> Rc<TreeTerm> {
         if let Some(existing) = cache.get(&node_id) {
             existing.clone()
         } else {
@@ -1091,7 +1072,7 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         }
     }
 
-    fn node_to_flat_explanation(&self, node_id: Id) -> FlatTerm<L> {
+    fn node_to_flat_explanation(&self, node_id: Id) -> FlatTerm {
         let node = self.node(node_id).clone();
         let children = node.fold(vec![], |mut sofar, child| {
             sofar.push(self.node_to_flat_explanation(child));
@@ -1100,7 +1081,7 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         FlatTerm::new(node, children)
     }
 
-    pub fn check_each_explain<N: Analysis>(&self, rules: &[&Rewrite<L, N>]) -> bool {
+    pub fn check_each_explain(&self, rules: &[&Rewrite]) -> bool {
         let rule_table = Explain::make_rule_table(rules);
         for i in 0..self.explainfind.len() {
             let explain_node = &self.explainfind[i];
@@ -1145,15 +1126,15 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         true
     }
 
-    pub(crate) fn explain_equivalence<N: Analysis>(
+    pub(crate) fn explain_equivalence(
         &mut self,
         left: Id,
         right: Id,
         unionfind: &mut UnionFind,
-        classes: &HashMap<Id, EClass<N::Data>>,
-    ) -> Explanation<L> {
+        classes: &HashMap<Id, EClass<<ExprAnalysis as Analysis>::Data>>,
+    ) -> Explanation {
         if self.optimize_explanation_lengths {
-            self.calculate_shortest_explanations::<N>(left, right, classes, unionfind);
+            self.calculate_shortest_explanations::<ExprAnalysis>(left, right, classes, unionfind);
         }
 
         let mut cache = Default::default();
@@ -1161,7 +1142,7 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         Explanation::new(self.explain_enodes(left, right, &mut cache, &mut enode_cache, false))
     }
 
-    pub(crate) fn explain_existance(&mut self, left: Id) -> Explanation<L> {
+    pub(crate) fn explain_existance(&mut self, left: Id) -> Explanation {
         let mut cache = Default::default();
         let mut enode_cache = Default::default();
         Explanation::new(self.explain_enode_existance(
@@ -1260,10 +1241,10 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
     fn explain_enode_existance(
         &self,
         node: Id,
-        rest_of_proof: Rc<TreeTerm<L>>,
-        cache: &mut ExplainCache<L>,
-        enode_cache: &mut NodeExplanationCache<L>,
-    ) -> TreeExplanation<L> {
+        rest_of_proof: Rc<TreeTerm>,
+        cache: &mut ExplainCache,
+        enode_cache: &mut NodeExplanationCache,
+    ) -> TreeExplanation {
         let graphnode = &self.explainfind[usize::from(node)];
         let existance = graphnode.existance_node;
         let existance_node = &self.explainfind[usize::from(existance)];
@@ -1314,10 +1295,10 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         &self,
         left: Id,
         right: Id,
-        cache: &mut ExplainCache<L>,
-        node_explanation_cache: &mut NodeExplanationCache<L>,
+        cache: &mut ExplainCache,
+        node_explanation_cache: &mut NodeExplanationCache,
         use_unoptimized: bool,
-    ) -> TreeExplanation<L> {
+    ) -> TreeExplanation {
         let mut proof = vec![self.node_to_explanation(left, node_explanation_cache)];
         let (left_connections, right_connections) = if use_unoptimized {
             self.get_path_unoptimized(left, right)
@@ -1349,10 +1330,10 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
     fn explain_adjacent(
         &self,
         connection: Connection,
-        cache: &mut ExplainCache<L>,
-        node_explanation_cache: &mut NodeExplanationCache<L>,
+        cache: &mut ExplainCache,
+        node_explanation_cache: &mut NodeExplanationCache,
         use_unoptimized: bool,
-    ) -> Rc<TreeTerm<L>> {
+    ) -> Rc<TreeTerm> {
         let fingerprint = (connection.current, connection.next);
 
         if let Some(answer) = cache.get(&fingerprint) {
@@ -1607,7 +1588,7 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         'outer: for eclass in classes.keys() {
             let enodes = self.find_all_enodes(*eclass);
             // find all congruence nodes
-            let mut cannon_enodes: HashMap<L, Vec<Id>> = Default::default();
+            let mut cannon_enodes: HashMap<Expr, Vec<Id>> = Default::default();
             for enode in &enodes {
                 let cannon = self
                     .node(*enode)
@@ -1940,134 +1921,4 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         let fuel = GREEDY_NUM_ITERS * self.explainfind.len();
         self.greedy_short_explanations(start, end, &congruence_neighbors, &mut distance_memo, fuel);
     }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::super::*;
-
-    #[test]
-    fn simple_explain() {
-        use SymbolLang as S;
-
-        crate::init_logger();
-        let mut egraph = EGraph::<S, ()>::default().with_explanations_enabled();
-
-        let fa = "(f a)".parse().unwrap();
-        let fb = "(f b)".parse().unwrap();
-        egraph.add_expr(&fa);
-        egraph.add_expr(&fb);
-        egraph.add_expr(&"c".parse().unwrap());
-        egraph.add_expr(&"d".parse().unwrap());
-
-        egraph.union_instantiations(
-            &"a".parse().unwrap(),
-            &"c".parse().unwrap(),
-            &Default::default(),
-            "ac".to_string(),
-        );
-
-        egraph.union_instantiations(
-            &"c".parse().unwrap(),
-            &"d".parse().unwrap(),
-            &Default::default(),
-            "cd".to_string(),
-        );
-
-        egraph.union_instantiations(
-            &"d".parse().unwrap(),
-            &"b".parse().unwrap(),
-            &Default::default(),
-            "db".to_string(),
-        );
-
-        egraph.rebuild();
-
-        assert_eq!(egraph.add_expr(&fa), egraph.add_expr(&fb));
-        assert_eq!(
-            egraph
-                .explain_equivalence(&fa, &fb)
-                .get_flat_strings()
-                .len(),
-            4
-        );
-        assert_eq!(
-            egraph
-                .explain_equivalence(&fa, &fb)
-                .get_flat_strings()
-                .len(),
-            4
-        );
-        assert_eq!(
-            egraph
-                .explain_equivalence(&fa, &fb)
-                .get_flat_strings()
-                .len(),
-            4
-        );
-
-        egraph.union_instantiations(
-            &"(f a)".parse().unwrap(),
-            &"g".parse().unwrap(),
-            &Default::default(),
-            "fag".to_string(),
-        );
-        egraph.union_instantiations(
-            &"g".parse().unwrap(),
-            &"(f b)".parse().unwrap(),
-            &Default::default(),
-            "gfb".to_string(),
-        );
-
-        egraph.rebuild();
-
-        egraph = egraph.without_explanation_length_optimization();
-        assert_eq!(
-            egraph
-                .explain_equivalence(&fa, &fb)
-                .get_flat_strings()
-                .len(),
-            4
-        );
-        egraph = egraph.with_explanation_length_optimization();
-        assert_eq!(
-            egraph
-                .explain_equivalence(&fa, &fb)
-                .get_flat_strings()
-                .len(),
-            3
-        );
-
-        assert_eq!(
-            egraph
-                .explain_equivalence(&fa, &fb)
-                .get_flat_strings()
-                .len(),
-            3
-        );
-
-        egraph.dot().to_dot("target/foo.dot").unwrap();
-    }
-}
-
-#[test]
-fn simple_explain_union_trusted() {
-    use crate::{EGraph, SymbolLang};
-    crate::init_logger();
-    let mut egraph = EGraph::new(()).with_explanations_enabled();
-
-    let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
-    let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
-    let c = egraph.add_uncanonical(SymbolLang::leaf("c"));
-    let d = egraph.add_uncanonical(SymbolLang::leaf("d"));
-    egraph.union_trusted(a, b, "a=b");
-    egraph.rebuild();
-    let fa = egraph.add_uncanonical(SymbolLang::new("f", vec![a]));
-    let fb = egraph.add_uncanonical(SymbolLang::new("f", vec![b]));
-    egraph.union_trusted(c, fa, "c=fa");
-    egraph.union_trusted(d, fb, "d=fb");
-    egraph.rebuild();
-    let mut exp = egraph.explain_equivalence(&"c".parse().unwrap(), &"d".parse().unwrap());
-    assert_eq!(exp.make_flat_explanation().len(), 4)
 }

@@ -14,22 +14,22 @@ struct Machine {
 struct Reg(u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Program<L> {
-    instructions: Vec<Instruction<L>>,
+pub struct Program {
+    instructions: Vec<Instruction>,
     subst: Subst,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Instruction<L> {
-    Bind { node: L, i: Reg, out: Reg },
+enum Instruction {
+    Bind { node: Expr, i: Reg, out: Reg },
     Compare { i: Reg, j: Reg },
-    Lookup { term: Vec<ENodeOrReg<L>>, i: Reg },
+    Lookup { term: Vec<ENodeOrReg>, i: Reg },
     Scan { out: Reg },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ENodeOrReg<L> {
-    ENode(L),
+enum ENodeOrReg {
+    ENode(Expr),
     Reg(Reg),
 }
 
@@ -88,7 +88,7 @@ impl Machine {
     fn run(
         &mut self,
         egraph: &EGraph,
-        instructions: &[Instruction<Expr>],
+        instructions: &[Instruction],
         subst: &Subst,
         yield_fn: &mut impl FnMut(&Self, &Subst) -> Result,
     ) -> Result
@@ -98,7 +98,7 @@ impl Machine {
             match instruction {
                 Instruction::Bind { i, out, node } => {
                     let remaining_instructions = instructions.as_slice();
-                    return for_each_matching_node(&egraph[self.reg(*i)], node, |matched| {
+                    return for_each_matching_node(&egraph[self.reg(*i)], &node, |matched| {
                         self.reg.truncate(out.0 as usize);
                         matched.for_each(|id| self.reg.push(id));
                         self.run(egraph, remaining_instructions, subst, yield_fn)
@@ -147,16 +147,16 @@ impl Machine {
     }
 }
 
-struct Compiler<L> {
+struct Compiler {
     v2r: IndexMap<Var, Reg>,
     free_vars: Vec<HashSet<Var>>,
     subtree_size: Vec<usize>,
-    todo_nodes: HashMap<(Id, Reg), L>,
-    instructions: Vec<Instruction<L>>,
+    todo_nodes: HashMap<(Id, Reg), Expr>,
+    instructions: Vec<Instruction>,
     next_reg: Reg,
 }
 
-impl<L: Language> Compiler<L> {
+impl Compiler {
     fn new() -> Self {
         Self {
             free_vars: Default::default(),
@@ -168,7 +168,7 @@ impl<L: Language> Compiler<L> {
         }
     }
 
-    fn add_todo(&mut self, pattern: &PatternAst<L>, id: Id, reg: Reg) {
+    fn add_todo(&mut self, pattern: &PatternAst, id: Id, reg: Reg) {
         match &pattern[id] {
             ENodeOrVar::Var(v) => {
                 if let Some(&j) = self.v2r.get(v) {
@@ -183,7 +183,7 @@ impl<L: Language> Compiler<L> {
         }
     }
 
-    fn load_pattern(&mut self, pattern: &PatternAst<L>) {
+    fn load_pattern(&mut self, pattern: &PatternAst) {
         let len = pattern.as_ref().len();
         self.free_vars = Vec::with_capacity(len);
         self.subtree_size = Vec::with_capacity(len);
@@ -208,7 +208,7 @@ impl<L: Language> Compiler<L> {
         }
     }
 
-    fn next(&mut self) -> Option<((Id, Reg), L)> {
+    fn next(&mut self) -> Option<((Id, Reg), Expr)> {
         // we take the max todo according to this key
         // - prefer grounded
         // - prefer more free variables
@@ -239,7 +239,7 @@ impl<L: Language> Compiler<L> {
             .all(|v| self.v2r.contains_key(v))
     }
 
-    fn compile(&mut self, patternbinder: Option<Var>, pattern: &PatternAst<L>) {
+    fn compile(&mut self, patternbinder: Option<Var>, pattern: &PatternAst) {
         self.load_pattern(pattern);
         let last_i = pattern.as_ref().len() - 1;
 
@@ -247,7 +247,7 @@ impl<L: Language> Compiler<L> {
 
         // Check if patternbinder already bound in v2r
         // Behavior common to creating a new pattern
-        let add_new_pattern = |comp: &mut Compiler<L>| {
+        let add_new_pattern = |comp: &mut Compiler| {
             if !comp.instructions.is_empty() {
                 // After first pattern needs scan
                 comp.instructions
@@ -306,7 +306,7 @@ impl<L: Language> Compiler<L> {
         self.next_reg = next_out;
     }
 
-    fn extract(self) -> Program<L> {
+    fn extract(self) -> Program {
         let mut subst = Subst::default();
         for (v, r) in self.v2r {
             subst.insert(v, Id::from(r.0 as usize));
@@ -318,8 +318,8 @@ impl<L: Language> Compiler<L> {
     }
 }
 
-impl Program<Expr> {
-    pub(crate) fn compile_from_pat(pattern: &PatternAst<Expr>) -> Self {
+impl Program {
+    pub(crate) fn compile_from_pat(pattern: &PatternAst) -> Self {
         let mut compiler = Compiler::new();
         compiler.compile(None, pattern);
         let program = compiler.extract();
@@ -327,7 +327,7 @@ impl Program<Expr> {
         program
     }
 
-    pub(crate) fn compile_from_multi_pat(patterns: &[(Var, PatternAst<Expr>)]) -> Self {
+    pub(crate) fn compile_from_multi_pat(patterns: &[(Var, PatternAst)]) -> Self {
         let mut compiler = Compiler::new();
         for (var, pattern) in patterns {
             compiler.compile(Some(*var), pattern);

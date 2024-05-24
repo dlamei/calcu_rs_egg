@@ -2,7 +2,6 @@ use crate::Id;
 use std::fmt::Debug;
 
 #[derive(Debug, Clone, Default)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnionFind {
     parents: Vec<Id>,
 }

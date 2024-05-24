@@ -6,7 +6,6 @@ use crate::*;
 /// An equivalence class of enodes.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
 pub struct EClass<D> {
     /// This eclass's id.
     pub id: Id,

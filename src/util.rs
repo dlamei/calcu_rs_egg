@@ -3,9 +3,6 @@ use symbolic_expressions::Sexp;
 
 use fmt::{Debug, Display, Formatter};
 
-#[cfg(feature = "serde-1")]
-use ::serde::{Deserialize, Serialize};
-
 #[allow(unused_imports)]
 use crate::*;
 
@@ -124,7 +121,6 @@ impl<T: Display> Debug for DisplayAsDebug<T> {
 Notably, insert/pop operations have O(1) expected amortized runtime complexity.
 */
 #[derive(Clone)]
-#[cfg_attr(feature = "serde-1", derive(Serialize, Deserialize))]
 pub(crate) struct UniqueQueue<T>
 where
     T: Eq + std::hash::Hash + Clone,
