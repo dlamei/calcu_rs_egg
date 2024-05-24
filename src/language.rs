@@ -7,20 +7,21 @@ use std::{
 
 use crate::*;
 
-use symbolic_expressions::{Sexp, SexpError};
-use thiserror::Error;
+use symbolic_expressions::Sexp;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Operator {
-    Add, Sub,
-    Mul, Div,
+    Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Expr {
     Num(i32),
     Symbol(String),
-    Binop(Operator, [Id; 2])
+    Binop(Operator, [Id; 2]),
 }
 
 impl std::fmt::Display for Expr {
@@ -44,8 +45,7 @@ impl Analysis for ExprAnalysis {
     }
 }
 
-
-impl Language for Expr {
+impl Construct for Expr {
     type Discriminant = std::mem::Discriminant<Expr>;
 
     fn discriminant(&self) -> Self::Discriminant {
@@ -76,16 +76,8 @@ impl Language for Expr {
     }
 }
 
-/// Trait that defines a Language whose terms will be in the [`EGraph`].
-///
-/// Check out the [`define_language!`] macro for an easy way to create
-/// a [`Language`].
-///
-/// If you want to pretty-print expressions, you should implement [`Display`] to
-/// display the language node's operator. For example, a language node
-/// `Add([Id; 2])` might be displayed as "+".
-#[allow(clippy::len_without_is_empty)]
-pub trait Language: Debug + Clone + Eq + Ord + Hash {
+/// A container for graph based expressions
+pub trait Construct: Debug + Clone + Eq + Ord + Hash {
     /// Type representing the cases of this language.
     ///
     /// Used for short-circuiting the search for equivalent nodes.
@@ -168,7 +160,7 @@ pub trait Language: Debug + Clone + Eq + Ord + Hash {
 
     /// Returns true if the predicate is true on any children.
     /// Does not short circuit.
-    fn any<F: FnMut(Id) -> bool>(&self, mut f: F) -> bool {
+    fn is_any<F: FnMut(Id) -> bool>(&self, mut f: F) -> bool {
         self.fold(false, |acc, id| acc || f(id))
     }
 
@@ -180,7 +172,7 @@ pub trait Language: Debug + Clone + Eq + Ord + Hash {
         F: FnMut(Id) -> Expr,
         Expr: AsRef<[Self]>,
     {
-        fn build<L: Language>(to: &mut RecExpr<L>, from: &[L]) -> Id {
+        fn build<L: Construct>(to: &mut RecExpr<L>, from: &[L]) -> Id {
             let last = from.last().unwrap().clone();
             let new_node = last.map_children(|id| {
                 let i = usize::from(id) + 1;
@@ -290,7 +282,7 @@ impl<L> From<RecExpr<L>> for Vec<L> {
     }
 }
 
-impl<L: Language> RecExpr<L> {
+impl<L: Construct> RecExpr<L> {
     /// Adds a given enode to this `RecExpr`.
     /// The enode's children `Id`s must refer to elements already in this list.
     pub fn add(&mut self, node: L) -> Id {
@@ -333,20 +325,20 @@ impl<L: Language> RecExpr<L> {
     }
 }
 
-impl<L: Language> Index<Id> for RecExpr<L> {
+impl<L: Construct> Index<Id> for RecExpr<L> {
     type Output = L;
     fn index(&self, id: Id) -> &L {
         &self.nodes[usize::from(id)]
     }
 }
 
-impl<L: Language> IndexMut<Id> for RecExpr<L> {
+impl<L: Construct> IndexMut<Id> for RecExpr<L> {
     fn index_mut(&mut self, id: Id) -> &mut L {
         &mut self.nodes[usize::from(id)]
     }
 }
 
-impl<L: Language + Display> Display for RecExpr<L> {
+impl<L: Construct + Display> Display for RecExpr<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.nodes.is_empty() {
             Display::fmt("()", f)
@@ -357,7 +349,7 @@ impl<L: Language + Display> Display for RecExpr<L> {
     }
 }
 
-impl<L: Language + Display> RecExpr<L> {
+impl<L: Construct + Display> RecExpr<L> {
     /// Convert this RecExpr into an Sexp
     pub(crate) fn to_sexp(&self) -> Sexp {
         let last = self.nodes.len() - 1;
@@ -397,30 +389,6 @@ impl<L: Language + Display> RecExpr<L> {
         pretty_print(&mut buf, &sexp, width, 1).unwrap();
         buf
     }
-}
-
-/// An error type for failures when attempting to parse an s-expression as a
-/// [`RecExpr<L>`].
-#[derive(Debug, Error)]
-pub enum RecExprParseError<E> {
-    /// An empty s-expression was found. Usually this is caused by an
-    /// empty list "()" somewhere in the input.
-    #[error("found empty s-expression")]
-    EmptySexp,
-
-    /// A list was found where an operator was expected. This is caused by
-    /// s-expressions of the form "((a b c) d e f)."
-    #[error("found a list in the head position: {0}")]
-    HeadList(Sexp),
-
-    /// Attempting to parse an operator into a value of type `L` failed.
-    #[error(transparent)]
-    BadOp(E),
-
-    /// An error occurred while parsing the s-expression itself, generally
-    /// because the input had an invalid structure (e.g. unpaired parentheses).
-    #[error(transparent)]
-    BadSexp(SexpError),
 }
 
 /// Result of [`Analysis::merge`] indicating which of the inputs
@@ -489,13 +457,7 @@ pub trait Analysis: Sized {
     ///
     /// [`union`]: EGraph::union()
     #[allow(unused_variables)]
-    fn pre_union(
-        egraph: &EGraph,
-        id1: Id,
-        id2: Id,
-        justification: &Option<Justification>,
-    ) {
-    }
+    fn pre_union(egraph: &EGraph, id1: Id, id2: Id, justification: &Option<Justification>) {}
 
     /// Defines how to merge two `Data`s when their containing
     /// [`EClass`]es merge.
@@ -538,14 +500,6 @@ pub trait Analysis: Sized {
     /// missing some equalities depending on the use case.
     fn allow_ematching_cycles(&self) -> bool {
         true
-    }
-}
-
-impl Analysis for () {
-    type Data = ();
-    fn make(_egraph: &mut EGraph, _enode: &Expr) -> Self::Data {}
-    fn merge(&mut self, _: &mut Self::Data, _: Self::Data) -> DidMerge {
-        DidMerge(false, false)
     }
 }
 

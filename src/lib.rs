@@ -20,7 +20,6 @@ for less or more logging.
 
 */
 
-mod dot;
 mod eclass;
 mod egraph;
 mod explain;

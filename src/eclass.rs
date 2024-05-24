@@ -6,7 +6,7 @@ use crate::*;
 /// An equivalence class of enodes.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
-pub struct EClass<D> {
+pub struct EClass {
     /// This eclass's id.
     pub id: Id,
     /// The equivalent enodes in this equivalence class.
@@ -15,12 +15,12 @@ pub struct EClass<D> {
     ///
     /// Modifying this field will _not_ cause changes to propagate through the e-graph.
     /// Prefer [`EGraph::set_analysis_data`] instead.
-    pub data: D,
+    pub data: <ExprAnalysis as Analysis>::Data,
     /// The original Ids of parent enodes.
     pub(crate) parents: Vec<Id>,
 }
 
-impl<D> EClass<D> {
+impl EClass {
     /// Returns `true` if the `eclass` is empty.
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
@@ -40,17 +40,14 @@ impl<D> EClass<D> {
     pub fn parents(&self) -> impl ExactSizeIterator<Item = Id> + '_ {
         self.parents.iter().copied()
     }
-}
 
-impl<D> EClass<D> {
     /// Iterates over the childless enodes in this eclass.
     pub fn leaves(&self) -> impl Iterator<Item = &Expr> {
         self.nodes.iter().filter(|&n| n.is_leaf())
     }
 
     /// Asserts that the childless enodes in this eclass are unique.
-    pub fn assert_unique_leaves(&self)
-    {
+    pub fn assert_unique_leaves(&self) {
         let mut leaves = self.leaves();
         if let Some(first) = leaves.next() {
             assert!(

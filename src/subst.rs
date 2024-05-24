@@ -3,7 +3,6 @@ use std::str::FromStr;
 
 use crate::*;
 use fmt::{Debug, Display, Formatter};
-use thiserror::Error;
 
 /// A variable for use in [`Pattern`]s or [`Subst`]s.
 ///
@@ -45,11 +44,9 @@ enum VarInner {
     Num(u32),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum VarParseError {
-    #[error("pattern variable {0:?} should have a leading question mark")]
     MissingQuestionMark(String),
-    #[error("number pattern variable {0:?} was malformed")]
     BadNumber(String),
 }
 

@@ -24,8 +24,7 @@ pub struct Rewrite {
     pub applier: Arc<dyn Applier + Sync + Send>,
 }
 
-impl Debug for Rewrite
-{
+impl Debug for Rewrite {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("Rewrite");
         d.field("name", &self.name);
@@ -154,8 +153,7 @@ where
 /// matching substitutions.
 /// Right now the only significant [`Searcher`] is [`Pattern`].
 ///
-pub trait Searcher
-{
+pub trait Searcher {
     /// Search one eclass, returning None if no matches can be found.
     /// This should not return a SearchMatches with no substs.
     fn search_eclass(&self, egraph: &EGraph, eclass: Id) -> Option<SearchMatches<'_>> {
@@ -216,8 +214,7 @@ pub trait Searcher
 /// Additionally, `egg` provides [`ConditionalApplier`] to stack
 /// [`Condition`]s onto an [`Applier`], which in many cases can save
 /// you from having to implement your own applier.
-pub trait Applier
-{
+pub trait Applier {
     /// Apply many substitutions.
     ///
     /// This method should call [`apply_one`] for each match.
@@ -310,7 +307,7 @@ pub struct ConditionalApplier<C, A> {
 
 impl<C, A> Applier for ConditionalApplier<C, A>
 where
-    C: Condition<Expr, ExprAnalysis>,
+    C: Condition,
     A: Applier,
 {
     fn get_pattern_ast(&self) -> Option<&PatternAst> {
@@ -349,11 +346,7 @@ where
 ///
 /// [`check`]: Condition::check()
 /// [`Fn`]: std::ops::Fn
-pub trait Condition<L, N>
-where
-    L: Language,
-    N: Analysis,
-{
+pub trait Condition {
     /// Check a condition.
     ///
     /// `eclass` is the eclass [`Id`] where the match (`subst`) occured.
@@ -372,10 +365,8 @@ where
     }
 }
 
-impl<L, F, N> Condition<L, N> for F
+impl<F> Condition for F
 where
-    L: Language,
-    N: Analysis,
     F: Fn(&mut EGraph, Id, &Subst) -> bool,
 {
     fn check(&self, egraph: &mut EGraph, eclass: Id, subst: &Subst) -> bool {
@@ -401,8 +392,7 @@ impl ConditionEqual {
     }
 }
 
-impl Condition<Expr, ExprAnalysis> for ConditionEqual
-{
+impl Condition for ConditionEqual {
     fn check(&self, egraph: &mut EGraph, _eclass: Id, subst: &Subst) -> bool {
         let mut id_buf_1 = vec![0.into(); self.p1.ast.as_ref().len()];
         let mut id_buf_2 = vec![0.into(); self.p2.ast.as_ref().len()];

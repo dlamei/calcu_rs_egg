@@ -1,9 +1,9 @@
 use crate::*;
+use language::{Analysis, ExprAnalysis};
 use std::{
     borrow::BorrowMut,
     fmt::{self, Debug},
 };
-use language::ExprAnalysis;
 
 use log::*;
 
@@ -59,8 +59,8 @@ pub struct EGraph {
     /// not the canonical id of the eclass.
     pending: Vec<Id>,
     analysis_pending: UniqueQueue<Id>,
-    pub(crate) classes: HashMap<Id, EClass<<ExprAnalysis as Analysis>::Data>>,
-    pub(crate) classes_by_op: HashMap<<Expr as Language>::Discriminant, HashSet<Id>>,
+    pub(crate) classes: HashMap<Id, EClass>,
+    pub(crate) classes_by_op: HashMap<<Expr as Construct>::Discriminant, HashSet<Id>>,
     /// Whether or not reading operation are allowed on this e-graph.
     /// Mutating operations will set this to `false`, and
     /// [`EGraph::rebuild`] will set it to true.
@@ -103,12 +103,12 @@ impl EGraph {
     }
 
     /// Returns an iterator over the eclasses in the egraph.
-    pub fn classes(&self) -> impl ExactSizeIterator<Item = &EClass<<ExprAnalysis as Analysis>::Data>> {
+    pub fn classes(&self) -> impl ExactSizeIterator<Item = &EClass> {
         self.classes.values()
     }
 
     /// Returns an mutating iterator over the eclasses in the egraph.
-    pub fn classes_mut(&mut self) -> impl ExactSizeIterator<Item = &mut EClass<<ExprAnalysis as Analysis>::Data>> {
+    pub fn classes_mut(&mut self) -> impl ExactSizeIterator<Item = &mut EClass> {
         self.classes.values_mut()
     }
 
@@ -391,7 +391,7 @@ impl EGraph {
         if let Some(explain) = &mut self.explain {
             explain
                 .with_nodes(&self.nodes)
-                .get_num_congr::<ExprAnalysis>(&self.classes, &self.unionfind)
+                .get_num_congr(&self.classes, &self.unionfind)
         } else {
             panic!("Use runner.with_explanations_enabled() or egraph.with_explanations_enabled() before running to get explanations.")
         }
@@ -528,12 +528,11 @@ impl EGraph {
     fn find_mut(&mut self, id: Id) -> Id {
         self.unionfind.find_mut(id)
     }
-
 }
 
 /// Given an `Id` using the `egraph[id]` syntax, retrieve the e-class.
 impl std::ops::Index<Id> for EGraph {
-    type Output = EClass<<ExprAnalysis as Analysis>::Data>;
+    type Output = EClass;
     fn index(&self, id: Id) -> &Self::Output {
         let id = self.find(id);
         self.classes

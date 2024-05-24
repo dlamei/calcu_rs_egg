@@ -1,8 +1,8 @@
-use crate::{Expr, ExprAnalysis, Symbol};
 use crate::{
-    util::pretty_print, Analysis, EClass, ENodeOrVar, HashMap, HashSet, Id, Language,
-    PatternAst, Rewrite, UnionFind, Var,
+    util::pretty_print, Analysis, Construct, EClass, ENodeOrVar, HashMap, HashSet, Id, PatternAst,
+    Rewrite, UnionFind, Var,
 };
+use crate::{Expr, ExprAnalysis, Symbol};
 
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, VecDeque};
@@ -367,11 +367,7 @@ impl Explanation {
     }
 
     // if the rewrite is just patterns, then it can check it
-    fn check_rewrite<'a>(
-        current: &'a FlatTerm,
-        next: &'a FlatTerm,
-        rewrite: &Rewrite,
-    ) -> bool {
+    fn check_rewrite<'a>(current: &'a FlatTerm, next: &'a FlatTerm, rewrite: &Rewrite) -> bool {
         if let Some(lhs) = rewrite.searcher.get_pattern_ast() {
             if let Some(rhs) = rewrite.applier.get_pattern_ast() {
                 let rewritten = current.rewrite(lhs, rhs);
@@ -824,9 +820,7 @@ impl<I: Eq + PartialEq> PartialOrd for HeapState<I> {
 }
 
 impl Explain {
-    fn make_rule_table<'a>(
-        rules: &[&'a Rewrite],
-    ) -> HashMap<Symbol, &'a Rewrite> {
+    fn make_rule_table<'a>(rules: &[&'a Rewrite]) -> HashMap<Symbol, &'a Rewrite> {
         let mut table: HashMap<Symbol, &'a Rewrite> = Default::default();
         for r in rules {
             table.insert(r.name, r);
@@ -998,11 +992,7 @@ impl<'x> ExplainNodes<'x> {
     pub(crate) fn node(&self, node_id: Id) -> &Expr {
         &self.nodes[usize::from(node_id)]
     }
-    fn node_to_explanation(
-        &self,
-        node_id: Id,
-        cache: &mut NodeExplanationCache,
-    ) -> Rc<TreeTerm> {
+    fn node_to_explanation(&self, node_id: Id, cache: &mut NodeExplanationCache) -> Rc<TreeTerm> {
         if let Some(existing) = cache.get(&node_id) {
             existing.clone()
         } else {
@@ -1076,10 +1066,10 @@ impl<'x> ExplainNodes<'x> {
         left: Id,
         right: Id,
         unionfind: &mut UnionFind,
-        classes: &HashMap<Id, EClass<<ExprAnalysis as Analysis>::Data>>,
+        classes: &HashMap<Id, EClass>,
     ) -> Explanation {
         if self.optimize_explanation_lengths {
-            self.calculate_shortest_explanations::<ExprAnalysis>(left, right, classes, unionfind);
+            self.calculate_shortest_explanations(left, right, classes, unionfind);
         }
 
         let mut cache = Default::default();
@@ -1512,9 +1502,9 @@ impl<'x> ExplainNodes<'x> {
         distance_memo.parent_distance[usize::from(enode)].1.clone()
     }
 
-    fn find_congruence_neighbors<N: Analysis>(
+    fn find_congruence_neighbors(
         &self,
-        classes: &HashMap<Id, EClass<N::Data>>,
+        classes: &HashMap<Id, EClass>,
         congruence_neighbors: &mut [Vec<Id>],
         unionfind: &UnionFind,
     ) {
@@ -1558,13 +1548,9 @@ impl<'x> ExplainNodes<'x> {
         }
     }
 
-    pub fn get_num_congr<N: Analysis>(
-        &self,
-        classes: &HashMap<Id, EClass<N::Data>>,
-        unionfind: &UnionFind,
-    ) -> usize {
+    pub fn get_num_congr(&self, classes: &HashMap<Id, EClass>, unionfind: &UnionFind) -> usize {
         let mut congruence_neighbors = vec![vec![]; self.explainfind.len()];
-        self.find_congruence_neighbors::<N>(classes, &mut congruence_neighbors, unionfind);
+        self.find_congruence_neighbors(classes, &mut congruence_neighbors, unionfind);
         let mut count = 0;
         for v in congruence_neighbors {
             count += v.len();
@@ -1775,9 +1761,9 @@ impl<'x> ExplainNodes<'x> {
         self.explainfind[usize::from(enode)].parent_connection.next
     }
 
-    fn calculate_common_ancestor<N: Analysis>(
+    fn calculate_common_ancestor(
         &self,
-        classes: &HashMap<Id, EClass<N::Data>>,
+        classes: &HashMap<Id, EClass>,
         congruence_neighbors: &[Vec<Id>],
     ) -> HashMap<(Id, Id), Id> {
         let mut common_ancestor_queries = HashMap::default();
@@ -1843,15 +1829,15 @@ impl<'x> ExplainNodes<'x> {
         common_ancestor
     }
 
-    fn calculate_shortest_explanations<N: Analysis>(
+    fn calculate_shortest_explanations(
         &mut self,
         start: Id,
         end: Id,
-        classes: &HashMap<Id, EClass<N::Data>>,
+        classes: &HashMap<Id, EClass>,
         unionfind: &UnionFind,
     ) {
         let mut congruence_neighbors = vec![vec![]; self.explainfind.len()];
-        self.find_congruence_neighbors::<N>(classes, &mut congruence_neighbors, unionfind);
+        self.find_congruence_neighbors(classes, &mut congruence_neighbors, unionfind);
         let mut parent_distance = vec![(Id::from(0), BigUint::zero()); self.explainfind.len()];
         for (i, entry) in parent_distance.iter_mut().enumerate() {
             entry.0 = Id::from(i);
@@ -1859,7 +1845,7 @@ impl<'x> ExplainNodes<'x> {
 
         let mut distance_memo = DistanceMemo {
             parent_distance,
-            common_ancestor: self.calculate_common_ancestor::<N>(classes, &congruence_neighbors),
+            common_ancestor: self.calculate_common_ancestor(classes, &congruence_neighbors),
             tree_depth: self.calculate_tree_depths(),
         };
 

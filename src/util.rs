@@ -30,9 +30,6 @@ pub use symbol_table::GlobalSymbol as Symbol;
 
 pub(crate) type BuildHasher = fxhash::FxBuildHasher;
 
-// pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, BuildHasher>;
-// pub(crate) type HashSet<K> = hashbrown::HashSet<K, BuildHasher>;
-
 pub(crate) use hashmap::*;
 
 #[cfg(feature = "deterministic")]
@@ -43,8 +40,8 @@ mod hashmap {
 #[cfg(not(feature = "deterministic"))]
 mod hashmap {
     use super::BuildHasher;
-    pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, BuildHasher>;
-    pub(crate) type HashSet<K> = hashbrown::HashSet<K, BuildHasher>;
+    pub(crate) type HashMap<K, V> = std::collections::HashMap<K, V, BuildHasher>;
+    pub(crate) type HashSet<K> = std::collections::HashSet<K, BuildHasher>;
 }
 
 pub(crate) fn hashmap_with_capacity<K, V>(cap: usize) -> hashmap::HashMap<K, V> {
@@ -54,8 +51,8 @@ pub(crate) fn hashmap_with_capacity<K, V>(cap: usize) -> hashmap::HashMap<K, V> 
 pub(crate) type IndexMap<K, V> = indexmap::IndexMap<K, V, BuildHasher>;
 pub(crate) type IndexSet<K> = indexmap::IndexSet<K, BuildHasher>;
 
-pub(crate) type Instant = instant::Instant;
-pub(crate) type Duration = instant::Duration;
+pub(crate) type Instant = std::time::Instant;
+pub(crate) type Duration = std::time::Duration;
 
 pub(crate) fn concat_vecs<T>(to: &mut Vec<T>, mut from: Vec<T>) {
     if to.len() < from.len() {
@@ -114,7 +111,7 @@ pub(crate) struct UniqueQueue<T>
 where
     T: Eq + std::hash::Hash + Clone,
 {
-    set: hashbrown::HashSet<T>,
+    set: std::collections::HashSet<T>,
     queue: std::collections::VecDeque<T>,
 }
 
@@ -124,7 +121,7 @@ where
 {
     fn default() -> Self {
         UniqueQueue {
-            set: hashbrown::HashSet::default(),
+            set: std::collections::HashSet::default(),
             queue: std::collections::VecDeque::new(),
         }
     }

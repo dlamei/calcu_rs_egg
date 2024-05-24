@@ -98,8 +98,7 @@ pub struct Runner<IterData = ()> {
     scheduler: Box<dyn RewriteScheduler>,
 }
 
-impl Default for Runner<()>
-{
+impl Default for Runner<()> {
     fn default() -> Self {
         Runner::new(ExprAnalysis::default())
     }
@@ -232,7 +231,7 @@ type RunnerResult<T> = std::result::Result<T, StopReason>;
 
 impl<IterData> Runner<IterData>
 where
-    IterData: IterationData<Expr, ExprAnalysis>,
+    IterData: IterationData,
 {
     /// Create a new `Runner` with the given analysis and default parameters.
     pub fn new(analysis: ExprAnalysis) -> Self {
@@ -362,7 +361,11 @@ where
     }
 
     /// Calls [`EGraph::explain_equivalence`](EGraph::explain_equivalence()).
-    pub fn explain_equivalence(&mut self, left: &RecExpr<Expr>, right: &RecExpr<Expr>) -> Explanation {
+    pub fn explain_equivalence(
+        &mut self,
+        left: &RecExpr<Expr>,
+        right: &RecExpr<Expr>,
+    ) -> Explanation {
         self.egraph.explain_equivalence(left, right)
     }
 
@@ -568,8 +571,7 @@ the [`EGraph`] and dominating how much time is spent while running the
 
 */
 #[allow(unused_variables)]
-pub trait RewriteScheduler
-{
+pub trait RewriteScheduler {
     /// Whether or not the [`Runner`] is allowed
     /// to say it has saturated.
     ///
@@ -624,9 +626,7 @@ pub trait RewriteScheduler
 #[derive(Debug)]
 pub struct SimpleScheduler;
 
-impl RewriteScheduler for SimpleScheduler
-{
-}
+impl RewriteScheduler for SimpleScheduler {}
 
 /// A [`RewriteScheduler`] that implements exponentional rule backoff.
 ///
@@ -714,8 +714,7 @@ impl Default for BackoffScheduler {
     }
 }
 
-impl RewriteScheduler for BackoffScheduler
-{
+impl RewriteScheduler for BackoffScheduler {
     fn can_stop(&mut self, iteration: usize) -> bool {
         let n_stats = self.stats.len();
 
@@ -811,20 +810,12 @@ impl RewriteScheduler for BackoffScheduler
 /// [`Runner`] is generic over the [`IterationData`] that it will be in the
 /// [`Iteration`]s, but by default it uses `()`.
 ///
-pub trait IterationData<L, N>: Sized
-where
-    L: Language,
-    N: Analysis,
-{
+pub trait IterationData: Sized {
     /// Given the current [`Runner`], make the
     /// data to be put in this [`Iteration`].
     fn make(runner: &Runner<Self>) -> Self;
 }
 
-impl<L, N> IterationData<L, N> for ()
-where
-    L: Language,
-    N: Analysis,
-{
+impl IterationData for () {
     fn make(_: &Runner<Self>) -> Self {}
 }

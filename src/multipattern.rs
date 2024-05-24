@@ -1,6 +1,3 @@
-use std::str::FromStr;
-use thiserror::Error;
-
 use crate::*;
 
 /// A set of open expressions bound to variables.
@@ -33,20 +30,6 @@ impl MultiPattern {
         let program = machine::Program::compile_from_multi_pat(&asts);
         Self { asts, program }
     }
-}
-
-#[derive(Debug, Error)]
-/// An error raised when parsing a [`MultiPattern`]
-pub enum MultiPatternParseError<E> {
-    /// One of the patterns in the multipattern failed to parse.
-    #[error(transparent)]
-    PatternParseError(E),
-    /// One of the clauses in the multipattern wasn't of the form `?var (= pattern)+`.
-    #[error("Bad clause in the multipattern: {0}")]
-    PatternAssignmentError(String),
-    /// One of the variables failed to parse.
-    #[error(transparent)]
-    VariableError(<Var as FromStr>::Err),
 }
 
 impl Searcher for MultiPattern {

@@ -34,12 +34,11 @@ enum ENodeOrReg {
 }
 
 #[inline(always)]
-fn for_each_matching_node<D>(
-    eclass: &EClass<D>,
+fn for_each_matching_node(
+    eclass: &EClass,
     node: &Expr,
     mut f: impl FnMut(&Expr) -> Result,
-) -> Result
-{
+) -> Result {
     if eclass.nodes.len() < 50 {
         eclass
             .nodes
@@ -91,8 +90,7 @@ impl Machine {
         instructions: &[Instruction],
         subst: &Subst,
         yield_fn: &mut impl FnMut(&Self, &Subst) -> Result,
-    ) -> Result
-    {
+    ) -> Result {
         let mut instructions = instructions.iter();
         while let Some(instruction) = instructions.next() {
             match instruction {
@@ -335,13 +333,7 @@ impl Program {
         compiler.extract()
     }
 
-    pub fn run_with_limit(
-        &self,
-        egraph: &EGraph,
-        eclass: Id,
-        mut limit: usize,
-    ) -> Vec<Subst>
-    {
+    pub fn run_with_limit(&self, egraph: &EGraph, eclass: Id, mut limit: usize) -> Vec<Subst> {
         assert!(egraph.clean, "Tried to search a dirty e-graph!");
 
         if limit == 0 {

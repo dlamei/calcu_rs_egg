@@ -1,8 +1,10 @@
 use fmt::Formatter;
 use log::*;
-use std::borrow::Cow;
-use std::fmt::{self, Display};
-use std::{convert::TryFrom};
+use std::convert::TryFrom;
+use std::{
+    borrow::Cow,
+    fmt::{self, Display},
+};
 
 use crate::*;
 
@@ -112,11 +114,11 @@ pub enum ENodeOrVar {
 /// The discriminant for the language of [`Pattern`]s.
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub enum ENodeOrVarDiscriminant {
-    ENode(<Expr as Language>::Discriminant),
+    ENode(<Expr as Construct>::Discriminant),
     Var(Var),
 }
 
-impl Language for ENodeOrVar {
+impl Construct for ENodeOrVar {
     type Discriminant = ENodeOrVarDiscriminant;
 
     #[inline(always)]
@@ -264,8 +266,7 @@ impl Searcher for Pattern {
     }
 }
 
-impl Applier for Pattern
-{
+impl Applier for Pattern {
     fn get_pattern_ast(&self) -> Option<&PatternAst> {
         Some(&self.ast)
     }
@@ -357,5 +358,3 @@ pub(crate) fn apply_pat(
 
     *ids.last().unwrap()
 }
-
-

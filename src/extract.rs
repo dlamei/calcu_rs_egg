@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use crate::util::{hashmap_with_capacity, HashMap};
-use crate::{Analysis, ExprAnalysis, EClass, EGraph, Expr, Id, Language, RecExpr};
+use crate::{Construct, EClass, EGraph, Expr, ExprAnalysis, Id, RecExpr};
 
 /// Extracting a single [`RecExpr`] from an [`EGraph`].
 #[derive(Debug)]
@@ -185,7 +185,7 @@ where
         }
     }
 
-    fn make_pass(&mut self, eclass: &EClass<<ExprAnalysis as Analysis>::Data>) -> Option<(CF::Cost, Expr)> {
+    fn make_pass(&mut self, eclass: &EClass) -> Option<(CF::Cost, Expr)> {
         let (cost, node) = eclass
             .iter()
             .map(|n| (self.node_total_cost(n), n))
