@@ -1,9 +1,9 @@
 use crate::*;
 use std::{
     borrow::BorrowMut,
-    fmt::{self, Debug, Display},
-    marker::PhantomData,
+    fmt::{self, Debug},
 };
+use language::ConstFolding;
 
 #[cfg(feature = "serde-1")]
 use serde::{Deserialize, Serialize};
@@ -46,25 +46,24 @@ You must call [`EGraph::rebuild`] after deserializing an e-graph!
 [`rebuild`]: EGraph::rebuild()
 [equivalence relation]: https://en.wikipedia.org/wiki/Equivalence_relation
 [congruence relation]: https://en.wikipedia.org/wiki/Congruence_relation
-[dot]: Dot
 [extract]: Extractor
 [sound]: https://itinerarium.github.io/phoneme-synthesis/?w=/'igraf/
 **/
 #[derive(Clone)]
 #[cfg_attr(feature = "serde-1", derive(Serialize, Deserialize))]
-pub struct EGraph<L: Language, N: Analysis<L>> {
+pub struct EGraph {
     /// The `Analysis` given when creating this `EGraph`.
-    pub analysis: N,
+    pub analysis: ConstFolding,
     /// The `Explain` used to explain equivalences in this `EGraph`.
-    pub(crate) explain: Option<Explain<L>>,
+    pub(crate) explain: Option<Explain<Expr>>,
     unionfind: UnionFind,
     /// Stores the original node represented by each non-canonical id
-    nodes: Vec<L>,
+    nodes: Vec<Expr>,
     /// Stores each enode's `Id`, not the `Id` of the eclass.
     /// Enodes in the memo are canonicalized at each rebuild, but after rebuilding new
     /// unions can cause them to become out of date.
     #[cfg_attr(feature = "serde-1", serde(with = "vectorize"))]
-    memo: HashMap<L, Id>,
+    memo: HashMap<Expr, Id>,
     /// Nodes which need to be processed for rebuilding. The `Id` is the `Id` of the enode,
     /// not the canonical id of the eclass.
     pending: Vec<Id>,
@@ -76,10 +75,10 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
             deserialize = "N::Data: for<'a> Deserialize<'a>",
         ))
     )]
-    pub(crate) classes: HashMap<Id, EClass<L, N::Data>>,
+    pub(crate) classes: HashMap<Id, EClass<<ConstFolding as Analysis>::Data>>,
     #[cfg_attr(feature = "serde-1", serde(skip))]
     #[cfg_attr(feature = "serde-1", serde(default = "default_classes_by_op"))]
-    pub(crate) classes_by_op: HashMap<L::Discriminant, HashSet<Id>>,
+    pub(crate) classes_by_op: HashMap<<Expr as Language>::Discriminant, HashSet<Id>>,
     /// Whether or not reading operation are allowed on this e-graph.
     /// Mutating operations will set this to `false`, and
     /// [`EGraph::rebuild`] will set it to true.
@@ -94,14 +93,14 @@ fn default_classes_by_op<K>() -> HashMap<K, HashSet<Id>> {
     HashMap::default()
 }
 
-impl<L: Language, N: Analysis<L> + Default> Default for EGraph<L, N> {
+impl Default for EGraph {
     fn default() -> Self {
-        Self::new(N::default())
+        Self::new(ConstFolding::default())
     }
 }
 
 // manual debug impl to avoid L: Language bound on EGraph defn
-impl<L: Language, N: Analysis<L>> Debug for EGraph<L, N> {
+impl Debug for EGraph {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("EGraph")
             .field("memo", &self.memo)
@@ -110,9 +109,9 @@ impl<L: Language, N: Analysis<L>> Debug for EGraph<L, N> {
     }
 }
 
-impl<L: Language, N: Analysis<L>> EGraph<L, N> {
+impl EGraph {
     /// Creates a new, empty `EGraph` with the given `Analysis`
-    pub fn new(analysis: N) -> Self {
+    pub fn new(analysis: ConstFolding) -> Self {
         Self {
             analysis,
             classes: Default::default(),
@@ -128,12 +127,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     /// Returns an iterator over the eclasses in the egraph.
-    pub fn classes(&self) -> impl ExactSizeIterator<Item = &EClass<L, N::Data>> {
+    pub fn classes(&self) -> impl ExactSizeIterator<Item = &EClass<<ConstFolding as Analysis>::Data>> {
         self.classes.values()
     }
 
     /// Returns an mutating iterator over the eclasses in the egraph.
-    pub fn classes_mut(&mut self) -> impl ExactSizeIterator<Item = &mut EClass<L, N::Data>> {
+    pub fn classes_mut(&mut self) -> impl ExactSizeIterator<Item = &mut EClass<<ConstFolding as Analysis>::Data>> {
         self.classes.values_mut()
     }
 
@@ -217,7 +216,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     /// Make a copy of the egraph with the same nodes, but no unions between them.
-    pub fn copy_without_unions(&self, analysis: N) -> Self {
+    pub fn copy_without_unions(&self, analysis: ConstFolding) -> Self {
         if self.explain.is_none() {
             panic!("Use runner.with_explanations_enabled() or egraph.with_explanations_enabled() before running to get a copied egraph without unions");
         }
@@ -229,7 +228,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     /// Performs the union between two egraphs.
-    pub fn egraph_union(&mut self, other: &EGraph<L, N>) {
+    pub fn egraph_union(&mut self, other: &EGraph) {
         let right_unions = other.get_union_equalities();
         for (left, right, why) in right_unions {
             self.union_instantiations(
@@ -242,7 +241,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.rebuild();
     }
 
-    fn from_enodes(enodes: Vec<(L, Id)>, analysis: N) -> Self {
+    fn from_enodes(enodes: Vec<(Expr, Id)>, analysis: ConstFolding) -> Self {
         let mut egraph = Self::new(analysis);
         let mut ids: HashMap<Id, Id> = Default::default();
 
@@ -284,7 +283,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Be wary, though, because terms which are not represented in both egraphs
     /// are not captured in the intersection.
     /// The runtime of this algorithm is O(|E1| * |E2|), where |E1| and |E2| are the number of enodes in each egraph.
-    pub fn egraph_intersect(&self, other: &EGraph<L, N>, analysis: N) -> EGraph<L, N> {
+    pub fn egraph_intersect(&self, other: &EGraph, analysis: ConstFolding) -> EGraph {
         let mut product_map: HashMap<(Id, Id), Id> = Default::default();
         let mut enodes = vec![];
 
@@ -309,8 +308,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     fn intersect_classes(
         &self,
-        other: &EGraph<L, N>,
-        res: &mut Vec<(L, Id)>,
+        other: &EGraph,
+        res: &mut Vec<(Expr, Id)>,
         class1: Id,
         class2: Id,
         product_map: &mut HashMap<(Id, Id), Id>,
@@ -344,7 +343,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Calling this function on an uncanonical `Id` returns a representative based on the how it
     /// was obtained (see [`add_uncanoncial`](EGraph::add_uncanonical),
     /// [`add_expr_uncanonical`](EGraph::add_expr_uncanonical))
-    pub fn id_to_expr(&self, id: Id) -> RecExpr<L> {
+    pub fn id_to_expr(&self, id: Id) -> RecExpr<Expr> {
         let mut res = Default::default();
         let mut cache = Default::default();
         self.id_to_expr_internal(&mut res, id, &mut cache);
@@ -353,7 +352,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     fn id_to_expr_internal(
         &self,
-        res: &mut RecExpr<L>,
+        res: &mut RecExpr<Expr>,
         node_id: Id,
         cache: &mut HashMap<Id, Id>,
     ) -> Id {
@@ -370,7 +369,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 
     /// Like [`id_to_expr`](EGraph::id_to_expr) but only goes one layer deep
-    pub fn id_to_node(&self, id: Id) -> &L {
+    pub fn id_to_node(&self, id: Id) -> &Expr {
         &self.nodes[usize::from(id)]
     }
 
@@ -378,7 +377,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// When an eclass listed in the given substitutions is found, it creates a variable.
     /// It also adds this variable and the corresponding Id value to the resulting [`Subst`]
     /// Otherwise it behaves like [`id_to_expr`](EGraph::id_to_expr).
-    pub fn id_to_pattern(&self, id: Id, substitutions: &HashMap<Id, Id>) -> (Pattern<L>, Subst) {
+    pub fn id_to_pattern(&self, id: Id, substitutions: &HashMap<Id, Id>) -> (Pattern<Expr>, Subst) {
         let mut res = Default::default();
         let mut subst = Default::default();
         let mut cache = Default::default();
@@ -388,7 +387,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     fn id_to_pattern_internal(
         &self,
-        res: &mut PatternAst<L>,
+        res: &mut PatternAst<Expr>,
         node_id: Id,
         var_substitutions: &HashMap<Id, Id>,
         subst: &mut Subst,
@@ -437,7 +436,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         if let Some(explain) = &mut self.explain {
             explain
                 .with_nodes(&self.nodes)
-                .get_num_congr::<N>(&self.classes, &self.unionfind)
+                .get_num_congr::<ConstFolding>(&self.classes, &self.unionfind)
         } else {
             panic!("Use runner.with_explanations_enabled() or egraph.with_explanations_enabled() before running to get explanations.")
         }
@@ -460,9 +459,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// given by [`get_flat_string`](Explanation::get_flat_string) and [`get_string`](Explanation::get_string).
     pub fn explain_equivalence(
         &mut self,
-        left_expr: &RecExpr<L>,
-        right_expr: &RecExpr<L>,
-    ) -> Explanation<L> {
+        left_expr: &RecExpr<Expr>,
+        right_expr: &RecExpr<Expr>,
+    ) -> Explanation<Expr> {
         let left = self.add_expr_uncanonical(left_expr);
         let right = self.add_expr_uncanonical(right_expr);
 
@@ -475,7 +474,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// This function picks representatives using [`id_to_expr`](EGraph::id_to_expr) so choosing
     /// `Id`s returned by functions like [`add_uncanonical`](EGraph::add_uncanonical) is important
     /// to control explanations
-    pub fn explain_id_equivalence(&mut self, left: Id, right: Id) -> Explanation<L> {
+    pub fn explain_id_equivalence(&mut self, left: Id, right: Id) -> Explanation<Expr> {
         if self.find(left) != self.find(right) {
             panic!(
                 "Tried to explain equivalence between non-equal terms {:?} and {:?}",
@@ -484,7 +483,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             );
         }
         if let Some(explain) = &mut self.explain {
-            explain.with_nodes(&self.nodes).explain_equivalence::<N>(
+            explain.with_nodes(&self.nodes).explain_equivalence::<ConstFolding>(
                 left,
                 right,
                 &mut self.unionfind,
@@ -503,14 +502,14 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// into the egraph and ends with the given `expr`.
     /// Note that this function can be called again to explain any intermediate terms
     /// used in the output [`Explanation`].
-    pub fn explain_existance(&mut self, expr: &RecExpr<L>) -> Explanation<L> {
+    pub fn explain_existance(&mut self, expr: &RecExpr<Expr>) -> Explanation<Expr> {
         let id = self.add_expr_uncanonical(expr);
         self.explain_existance_id(id)
     }
 
     /// Equivalent to calling [`explain_existance`](EGraph::explain_existance)`(`[`id_to_expr`](EGraph::id_to_expr)`(id))`
     /// but more efficient
-    fn explain_existance_id(&mut self, id: Id) -> Explanation<L> {
+    fn explain_existance_id(&mut self, id: Id) -> Explanation<Expr> {
         if let Some(explain) = &mut self.explain {
             explain.with_nodes(&self.nodes).explain_existance(id)
         } else {
@@ -521,9 +520,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Return an [`Explanation`] for why a pattern appears in the egraph.
     pub fn explain_existance_pattern(
         &mut self,
-        pattern: &PatternAst<L>,
+        pattern: &PatternAst<Expr>,
         subst: &Subst,
-    ) -> Explanation<L> {
+    ) -> Explanation<Expr> {
         let id = self.add_instantiation_noncanonical(pattern, subst);
         if let Some(explain) = &mut self.explain {
             explain.with_nodes(&self.nodes).explain_existance(id)
@@ -535,10 +534,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Get an explanation for why an expression matches a pattern.
     pub fn explain_matches(
         &mut self,
-        left_expr: &RecExpr<L>,
-        right_pattern: &PatternAst<L>,
+        left_expr: &RecExpr<Expr>,
+        right_pattern: &PatternAst<Expr>,
         subst: &Subst,
-    ) -> Explanation<L> {
+    ) -> Explanation<Expr> {
         let left = self.add_expr_uncanonical(left_expr);
         let right = self.add_instantiation_noncanonical(right_pattern, subst);
 
@@ -549,7 +548,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             );
         }
         if let Some(explain) = &mut self.explain {
-            explain.with_nodes(&self.nodes).explain_equivalence::<N>(
+            explain.with_nodes(&self.nodes).explain_equivalence::<ConstFolding>(
                 left,
                 right,
                 &mut self.unionfind,
@@ -587,224 +586,11 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.unionfind.find_mut(id)
     }
 
-    /// Creates a [`Dot`] to visualize this egraph. See [`Dot`].
-    pub fn dot(&self) -> Dot<L, N> {
-        Dot {
-            egraph: self,
-            config: vec![],
-            use_anchors: true,
-        }
-    }
-}
-
-/// Translates `EGraph<L, A>` into `EGraph<L2, A2>`. For common cases, you don't
-/// need to implement this manually. See the provided [`SimpleLanguageMapper`].
-pub trait LanguageMapper<L, A>
-where
-    L: Language,
-    A: Analysis<L>,
-{
-    /// The target language to translate into.
-    type L2: Language;
-
-    /// The target analysis to transate into.
-    type A2: Analysis<Self::L2>;
-
-    /// Translate a node of `L` into a node of `L2`.
-    fn map_node(&self, node: L) -> Self::L2;
-
-    /// Translate `L::Discriminant` into `L2::Discriminant`
-    fn map_discriminant(
-        &self,
-        discriminant: L::Discriminant,
-    ) -> <Self::L2 as Language>::Discriminant;
-
-    /// Translate an analysis of type `A` into an analysis of `A2`.
-    fn map_analysis(&self, analysis: A) -> Self::A2;
-
-    /// Translate `A::Data` into `A2::Data`.
-    fn map_data(&self, data: A::Data) -> <Self::A2 as Analysis<Self::L2>>::Data;
-
-    /// Translate an [`EClass`] over `L` into an [`EClass`] over `L2`.
-    fn map_eclass(
-        &self,
-        src_eclass: EClass<L, A::Data>,
-    ) -> EClass<Self::L2, <Self::A2 as Analysis<Self::L2>>::Data> {
-        EClass {
-            id: src_eclass.id,
-            nodes: src_eclass
-                .nodes
-                .into_iter()
-                .map(|l| self.map_node(l))
-                .collect(),
-            data: self.map_data(src_eclass.data),
-            parents: src_eclass.parents,
-        }
-    }
-
-    /// Map an `EGraph` over `L` into an `EGraph` over `L2`.
-    fn map_egraph(&self, src_egraph: EGraph<L, A>) -> EGraph<Self::L2, Self::A2> {
-        let kv_map = |(k, v): (L, Id)| (self.map_node(k), v);
-        EGraph {
-            analysis: self.map_analysis(src_egraph.analysis),
-            explain: None,
-            unionfind: src_egraph.unionfind,
-            memo: src_egraph.memo.into_iter().map(kv_map).collect(),
-            pending: src_egraph.pending,
-            nodes: src_egraph
-                .nodes
-                .into_iter()
-                .map(|x| self.map_node(x))
-                .collect(),
-            analysis_pending: src_egraph.analysis_pending,
-            classes: src_egraph
-                .classes
-                .into_iter()
-                .map(|(id, eclass)| (id, self.map_eclass(eclass)))
-                .collect(),
-            classes_by_op: src_egraph
-                .classes_by_op
-                .into_iter()
-                .map(|(k, v)| (self.map_discriminant(k), v))
-                .collect(),
-            clean: src_egraph.clean,
-        }
-    }
-}
-
-/// An implementation of [`LanguageMapper`] that can convert an [`EGraph`] over one
-/// language into an [`EGraph`] over a different language in common cases.
-///
-/// Specifically, you can use this if have
-/// [`conversion`](https://doc.rust-lang.org/1.76.0/core/convert/index.html)
-/// implemented between your source and target language, as well as your source and
-/// target analysis.
-///
-/// Here is an example of how to use this. Consider a case where you have a newtype
-/// wrapper over an existing language type:
-///
-/// ```rust
-/// use egg::*;
-///
-/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// struct MyLang(SymbolLang);
-/// # impl Language for MyLang {
-/// #     type Discriminant = <SymbolLang as Language>::Discriminant;
-/// #
-/// #     fn matches(&self, other: &Self) -> bool {
-/// #         self.0.matches(&other.0)
-/// #     }
-/// #
-/// #     fn children(&self) -> &[Id] {
-/// #         self.0.children()
-/// #     }
-/// #
-/// #     fn children_mut(&mut self) -> &mut [Id] {
-/// #         self.0.children_mut()
-/// #     }
-/// #
-/// #     fn discriminant(&self) -> Self::Discriminant {
-/// #         self.0.discriminant()
-/// #     }
-/// # }
-///
-/// // some external library function
-/// pub fn external(egraph: EGraph<SymbolLang, ()>) { }
-///
-/// fn do_thing(egraph: EGraph<MyLang, ()>) {
-///   // how do I call external?
-///   external(todo!())
-/// }
-/// ```
-///
-/// By providing an implementation of `From<MyLang> for SymbolLang`, we can
-/// construct `SimpleLanguageMapper` and use it to translate our [`EGraph`] into the
-/// right type.
-///
-/// ```rust
-/// # use egg::*;
-/// # #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// # struct MyLang(SymbolLang);
-/// # impl Language for MyLang {
-/// #     type Discriminant = <SymbolLang as Language>::Discriminant;
-/// #
-/// #     fn matches(&self, other: &Self) -> bool {
-/// #         self.0.matches(&other.0)
-/// #     }
-/// #
-/// #     fn children(&self) -> &[Id] {
-/// #         self.0.children()
-/// #     }
-/// #
-/// #     fn children_mut(&mut self) -> &mut [Id] {
-/// #         self.0.children_mut()
-/// #     }
-/// #
-/// #     fn discriminant(&self) -> Self::Discriminant {
-/// #         self.0.discriminant()
-/// #     }
-/// # }
-/// # pub fn external(egraph: EGraph<SymbolLang, ()>) { }
-/// impl From<MyLang> for SymbolLang {
-///     fn from(value: MyLang) -> Self {
-///         value.0
-///     }
-/// }
-///
-/// fn do_thing(egraph: EGraph<MyLang, ()>) {
-///     external(SimpleLanguageMapper::default().map_egraph(egraph))
-/// }
-/// ```
-///
-/// Note that we do not need to provide any conversion for the analysis, because it
-/// is the same in both source and target e-graphs.
-pub struct SimpleLanguageMapper<L2, A2> {
-    _phantom: PhantomData<(L2, A2)>,
-}
-
-impl<L, A> Default for SimpleLanguageMapper<L, A> {
-    fn default() -> Self {
-        SimpleLanguageMapper {
-            _phantom: PhantomData::default(),
-        }
-    }
-}
-
-impl<L, A, L2, A2> LanguageMapper<L, A> for SimpleLanguageMapper<L2, A2>
-where
-    L: Language,
-    A: Analysis<L>,
-    L2: Language + From<L>,
-    A2: Analysis<L2> + From<A>,
-    <L2 as Language>::Discriminant: From<<L as Language>::Discriminant>,
-    <A2 as Analysis<L2>>::Data: From<<A as Analysis<L>>::Data>,
-{
-    type L2 = L2;
-    type A2 = A2;
-
-    fn map_node(&self, node: L) -> Self::L2 {
-        node.into()
-    }
-
-    fn map_discriminant(
-        &self,
-        discriminant: <L as Language>::Discriminant,
-    ) -> <Self::L2 as Language>::Discriminant {
-        discriminant.into()
-    }
-
-    fn map_analysis(&self, analysis: A) -> Self::A2 {
-        analysis.into()
-    }
-
-    fn map_data(&self, data: <A as Analysis<L>>::Data) -> <Self::A2 as Analysis<Self::L2>>::Data {
-        data.into()
-    }
 }
 
 /// Given an `Id` using the `egraph[id]` syntax, retrieve the e-class.
-impl<L: Language, N: Analysis<L>> std::ops::Index<Id> for EGraph<L, N> {
-    type Output = EClass<L, N::Data>;
+impl std::ops::Index<Id> for EGraph {
+    type Output = EClass<<ConstFolding as Analysis>::Data>;
     fn index(&self, id: Id) -> &Self::Output {
         let id = self.find(id);
         self.classes
@@ -815,7 +601,7 @@ impl<L: Language, N: Analysis<L>> std::ops::Index<Id> for EGraph<L, N> {
 
 /// Given an `Id` using the `&mut egraph[id]` syntax, retrieve a mutable
 /// reference to the e-class.
-impl<L: Language, N: Analysis<L>> std::ops::IndexMut<Id> for EGraph<L, N> {
+impl std::ops::IndexMut<Id> for EGraph {
     fn index_mut(&mut self, id: Id) -> &mut Self::Output {
         let id = self.find_mut(id);
         self.classes
@@ -824,7 +610,7 @@ impl<L: Language, N: Analysis<L>> std::ops::IndexMut<Id> for EGraph<L, N> {
     }
 }
 
-impl<L: Language, N: Analysis<L>> EGraph<L, N> {
+impl EGraph {
     /// Adds a [`RecExpr`] to the [`EGraph`], returning the id of the RecExpr's eclass.
     ///
     /// # Example
@@ -839,7 +625,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// ```
     ///
     /// [`add_expr`]: EGraph::add_expr()
-    pub fn add_expr(&mut self, expr: &RecExpr<L>) -> Id {
+    pub fn add_expr(&mut self, expr: &RecExpr<Expr>) -> Id {
         let id = self.add_expr_uncanonical(expr);
         self.find(id)
     }
@@ -847,7 +633,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Similar to [`add_expr`](EGraph::add_expr) but the `Id` returned may not be canonical
     ///
     /// Calling [`id_to_expr`](EGraph::id_to_expr) on this `Id` return a copy of `expr` when explanations are enabled
-    pub fn add_expr_uncanonical(&mut self, expr: &RecExpr<L>) -> Id {
+    pub fn add_expr_uncanonical(&mut self, expr: &RecExpr<Expr>) -> Id {
         let nodes = expr.as_ref();
         let mut new_ids = Vec::with_capacity(nodes.len());
         let mut new_node_q = Vec::with_capacity(nodes.len());
@@ -875,7 +661,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     /// Adds a [`Pattern`] and a substitution to the [`EGraph`], returning
     /// the eclass of the instantiated pattern.
-    pub fn add_instantiation(&mut self, pat: &PatternAst<L>, subst: &Subst) -> Id {
+    pub fn add_instantiation(&mut self, pat: &PatternAst<Expr>, subst: &Subst) -> Id {
         let id = self.add_instantiation_noncanonical(pat, subst);
         self.find(id)
     }
@@ -886,7 +672,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Like [`add_uncanonical`](EGraph::add_uncanonical), when explanations are enabled calling
     /// Calling [`id_to_expr`](EGraph::id_to_expr) on this `Id` return an correspond to the
     /// instantiation of the pattern
-    fn add_instantiation_noncanonical(&mut self, pat: &PatternAst<L>, subst: &Subst) -> Id {
+    fn add_instantiation_noncanonical(&mut self, pat: &PatternAst<Expr>, subst: &Subst) -> Id {
         let nodes = pat.as_ref();
         let mut new_ids = Vec::with_capacity(nodes.len());
         let mut new_node_q = Vec::with_capacity(nodes.len());
@@ -929,7 +715,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// # Example
     /// ```
     /// # use egg::*;
-    /// let mut egraph: EGraph<SymbolLang, ()> = Default::default();
+    /// let mut egraph: EGraph = Default::default();
     /// let a = egraph.add(SymbolLang::leaf("a"));
     /// let b = egraph.add(SymbolLang::leaf("b"));
     ///
@@ -948,14 +734,14 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// ```
     pub fn lookup<B>(&self, enode: B) -> Option<Id>
     where
-        B: BorrowMut<L>,
+        B: BorrowMut<Expr>,
     {
         self.lookup_internal(enode).map(|id| self.find(id))
     }
 
     fn lookup_internal<B>(&self, mut enode: B) -> Option<Id>
     where
-        B: BorrowMut<L>,
+        B: BorrowMut<Expr>,
     {
         let enode = enode.borrow_mut();
         enode.update_children(|id| self.find(id));
@@ -965,13 +751,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Lookup the eclass of the given [`RecExpr`].
     ///
     /// Equivalent to the last value in [`EGraph::lookup_expr_ids`].
-    pub fn lookup_expr(&self, expr: &RecExpr<L>) -> Option<Id> {
+    pub fn lookup_expr(&self, expr: &RecExpr<Expr>) -> Option<Id> {
         self.lookup_expr_ids(expr)
             .and_then(|ids| ids.last().copied())
     }
 
     /// Lookup the eclasses of all the nodes in the given [`RecExpr`].
-    pub fn lookup_expr_ids(&self, expr: &RecExpr<L>) -> Option<Vec<Id>> {
+    pub fn lookup_expr_ids(&self, expr: &RecExpr<Expr>) -> Option<Vec<Id>> {
         let nodes = expr.as_ref();
         let mut new_ids = Vec::with_capacity(nodes.len());
         for node in nodes {
@@ -994,7 +780,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Like [`union`](EGraph::union), this modifies the e-graph.
     ///
     /// [`add`]: EGraph::add()
-    pub fn add(&mut self, enode: L) -> Id {
+    pub fn add(&mut self, enode: Expr) -> Id {
         let id = self.add_uncanonical(enode);
         self.find(id)
     }
@@ -1007,7 +793,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// ## Example
     /// ```
     /// # use egg::*;
-    /// let mut egraph: EGraph<SymbolLang, ()> = EGraph::default().with_explanations_enabled();
+    /// let mut egraph: EGraph = EGraph::default().with_explanations_enabled();
     /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
     /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
     /// egraph.union(a, b);
@@ -1026,7 +812,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// # Example
     /// ```
     /// # use egg::*;
-    /// let mut egraph: EGraph<SymbolLang, ()> = EGraph::default().with_explanations_disabled();
+    /// let mut egraph: EGraph = EGraph::default().with_explanations_disabled();
     /// let a = egraph.add_uncanonical(SymbolLang::leaf("a"));
     /// let b = egraph.add_uncanonical(SymbolLang::leaf("b"));
     /// egraph.union(a, b);
@@ -1038,7 +824,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// assert_eq!(egraph.id_to_expr(fa), "(f a)".parse().unwrap());
     /// assert_eq!(egraph.id_to_expr(fb), "(f a)".parse().unwrap());
     /// ```
-    pub fn add_uncanonical(&mut self, mut enode: L) -> Id {
+    pub fn add_uncanonical(&mut self, mut enode: Expr) -> Id {
         let original = enode.clone();
         if let Some(existing_id) = self.lookup_internal(&mut enode) {
             let id = self.find(existing_id);
@@ -1065,20 +851,20 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
 
             // now that we updated explanations, run the analysis for the new eclass
-            N::modify(self, id);
+            ConstFolding::modify(self, id);
             self.clean = false;
             id
         }
     }
 
     /// This function makes a new eclass in the egraph (but doesn't touch explanations)
-    fn make_new_eclass(&mut self, enode: L, original: L) -> Id {
+    fn make_new_eclass(&mut self, enode: Expr, original: Expr) -> Id {
         let id = self.unionfind.make_set();
         log::trace!("  ...adding to {}", id);
         let class = EClass {
             id,
             nodes: vec![enode.clone()],
-            data: N::make(self, &original),
+            data: ConstFolding::make(self, &original),
             parents: Default::default(),
         };
 
@@ -1103,7 +889,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// Returns a list of id where both expression are represented.
     /// In most cases, there will none or exactly one id.
     ///
-    pub fn equivs(&self, expr1: &RecExpr<L>, expr2: &RecExpr<L>) -> Vec<Id> {
+    pub fn equivs(&self, expr1: &RecExpr<Expr>, expr2: &RecExpr<Expr>) -> Vec<Id> {
         let pat1 = Pattern::from(expr1.as_ref());
         let pat2 = Pattern::from(expr2.as_ref());
         let matches1 = pat1.search(self);
@@ -1135,8 +921,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// a `bool` indicating whether a union occured.
     pub fn union_instantiations(
         &mut self,
-        from_pat: &PatternAst<L>,
-        to_pat: &PatternAst<L>,
+        from_pat: &PatternAst<Expr>,
+        to_pat: &PatternAst<Expr>,
         subst: &Subst,
         rule_name: impl Into<Symbol>,
     ) -> (Id, bool) {
@@ -1194,7 +980,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         rule: Option<Justification>,
         any_new_rhs: bool,
     ) -> bool {
-        N::pre_union(self, enode_id1, enode_id2, &rule);
+        ConstFolding::pre_union(self, enode_id1, enode_id2, &rule);
 
         self.clean = false;
         let mut id1 = self.find_mut(enode_id1);
@@ -1238,7 +1024,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         concat_vecs(&mut class1.nodes, class2.nodes);
         concat_vecs(&mut class1.parents, class2.parents);
 
-        N::modify(self, id1);
+        ConstFolding::modify(self, id1);
         true
     }
 
@@ -1247,12 +1033,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// This also propagates the changes through the e-graph,
     /// so [`Analysis::make`] and [`Analysis::merge`] will get
     /// called for other parts of the e-graph on rebuild.
-    pub fn set_analysis_data(&mut self, id: Id, new_data: N::Data) {
+    pub fn set_analysis_data(&mut self, id: Id, new_data: <ConstFolding as Analysis>::Data) {
         let id = self.find_mut(id);
         let class = self.classes.get_mut(&id).unwrap();
         class.data = new_data;
         self.analysis_pending.extend(class.parents.iter().copied());
-        N::modify(self, id)
+        ConstFolding::modify(self, id)
     }
 
     /// Returns a more debug-able representation of the egraph.
@@ -1268,11 +1054,11 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 }
 
-impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
+impl EGraph {
     /// Panic if the given eclass doesn't contain the given patterns
     ///
     /// Useful for testing.
-    pub fn check_goals(&self, id: Id, goals: &[Pattern<L>]) {
+    pub fn check_goals(&self, id: Id, goals: &[Pattern<Expr>]) {
         let (cost, best) = Extractor::new(self, AstSize).find_best(id);
         println!("End ({}): {}", cost, best.pretty(80));
 
@@ -1296,7 +1082,7 @@ impl<L: Language + Display, N: Analysis<L>> EGraph<L, N> {
 }
 
 // All the rebuilding stuff
-impl<L: Language, N: Analysis<L>> EGraph<L, N> {
+impl EGraph {
     #[inline(never)]
     fn rebuild_classes(&mut self) -> usize {
         let mut classes_by_op = std::mem::take(&mut self.classes_by_op);
@@ -1316,7 +1102,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
             trimmed += old_len - class.nodes.len();
 
-            let mut add = |n: &L| {
+            let mut add = |n: &Expr| {
                 classes_by_op
                     .entry(n.discriminant())
                     .or_default()
@@ -1403,13 +1189,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             while let Some(class_id) = self.analysis_pending.pop() {
                 let node = self.nodes[usize::from(class_id)].clone();
                 let class_id = self.find_mut(class_id);
-                let node_data = N::make(self, &node);
+                let node_data = ConstFolding::make(self, &node);
                 let class = self.classes.get_mut(&class_id).unwrap();
 
                 let did_merge = self.analysis.merge(&mut class.data, node_data);
                 if did_merge.0 {
                     self.analysis_pending.extend(class.parents.iter().copied());
-                    N::modify(self, class_id)
+                    ConstFolding::modify(self, class_id)
                 }
             }
         }
@@ -1489,7 +1275,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         n_unions
     }
 
-    pub(crate) fn check_each_explain(&mut self, rules: &[&Rewrite<L, N>]) -> bool {
+    pub(crate) fn check_each_explain(&mut self, rules: &[&Rewrite<Expr, ConstFolding>]) -> bool {
         if let Some(explain) = &mut self.explain {
             explain.with_nodes(&self.nodes).check_each_explain(rules)
         } else {
@@ -1498,9 +1284,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     }
 }
 
-struct EGraphDump<'a, L: Language, N: Analysis<L>>(&'a EGraph<L, N>);
+struct EGraphDump<'a>(&'a EGraph);
 
-impl<'a, L: Language, N: Analysis<L>> Debug for EGraphDump<'a, L, N> {
+impl<'a> Debug for EGraphDump<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ids: Vec<Id> = self.0.classes().map(|c| c.id).collect();
         ids.sort();

@@ -34,13 +34,11 @@ enum ENodeOrReg<L> {
 }
 
 #[inline(always)]
-fn for_each_matching_node<L, D>(
-    eclass: &EClass<L, D>,
-    node: &L,
-    mut f: impl FnMut(&L) -> Result,
+fn for_each_matching_node<D>(
+    eclass: &EClass<D>,
+    node: &Expr,
+    mut f: impl FnMut(&Expr) -> Result,
 ) -> Result
-where
-    L: Language,
 {
     if eclass.nodes.len() < 50 {
         eclass
@@ -83,21 +81,17 @@ where
 }
 
 impl Machine {
-    #[inline(always)]
     fn reg(&self, reg: Reg) -> Id {
         self.reg[reg.0 as usize]
     }
 
-    fn run<L, N>(
+    fn run(
         &mut self,
-        egraph: &EGraph<L, N>,
-        instructions: &[Instruction<L>],
+        egraph: &EGraph,
+        instructions: &[Instruction<Expr>],
         subst: &Subst,
         yield_fn: &mut impl FnMut(&Self, &Subst) -> Result,
     ) -> Result
-    where
-        L: Language,
-        N: Analysis<L>,
     {
         let mut instructions = instructions.iter();
         while let Some(instruction) = instructions.next() {
@@ -324,8 +318,8 @@ impl<L: Language> Compiler<L> {
     }
 }
 
-impl<L: Language> Program<L> {
-    pub(crate) fn compile_from_pat(pattern: &PatternAst<L>) -> Self {
+impl Program<Expr> {
+    pub(crate) fn compile_from_pat(pattern: &PatternAst<Expr>) -> Self {
         let mut compiler = Compiler::new();
         compiler.compile(None, pattern);
         let program = compiler.extract();
@@ -333,7 +327,7 @@ impl<L: Language> Program<L> {
         program
     }
 
-    pub(crate) fn compile_from_multi_pat(patterns: &[(Var, PatternAst<L>)]) -> Self {
+    pub(crate) fn compile_from_multi_pat(patterns: &[(Var, PatternAst<Expr>)]) -> Self {
         let mut compiler = Compiler::new();
         for (var, pattern) in patterns {
             compiler.compile(Some(*var), pattern);
@@ -341,14 +335,12 @@ impl<L: Language> Program<L> {
         compiler.extract()
     }
 
-    pub fn run_with_limit<A>(
+    pub fn run_with_limit(
         &self,
-        egraph: &EGraph<L, A>,
+        egraph: &EGraph,
         eclass: Id,
         mut limit: usize,
     ) -> Vec<Subst>
-    where
-        A: Analysis<L>,
     {
         assert!(egraph.clean, "Tried to search a dirty e-graph!");
 

@@ -1,6 +1,6 @@
 use crate::Symbol;
 use crate::{
-    util::pretty_print, Analysis, EClass, ENodeOrVar, FromOp, HashMap, HashSet, Id, Language,
+    util::pretty_print, Analysis, EClass, ENodeOrVar, HashMap, HashSet, Id, Language,
     PatternAst, RecExpr, Rewrite, UnionFind, Var,
 };
 
@@ -131,14 +131,14 @@ pub struct Explanation<L: Language> {
     flat_explanation: Option<FlatExplanation<L>>,
 }
 
-impl<L: Language + Display + FromOp> Display for Explanation<L> {
+impl<L: Language + Display> Display for Explanation<L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = self.get_sexp().to_string();
         f.write_str(&s)
     }
 }
 
-impl<L: Language + Display + FromOp> Explanation<L> {
+impl<L: Language + Display> Explanation<L> {
     /// Get each flattened term in the explanation as an s-expression string.
     ///
     /// The s-expression format mirrors the format of each [`FlatTerm`].
@@ -375,7 +375,7 @@ impl<L: Language> Explanation<L> {
 
     /// Check the validity of the explanation with respect to the given rules.
     /// This only is able to check rule applications when the rules are implement `get_pattern_ast`.
-    pub fn check_proof<'a, R, N: Analysis<L>>(&mut self, rules: R)
+    pub fn check_proof<'a, R, N: Analysis>(&mut self, rules: R)
     where
         R: IntoIterator<Item = &'a Rewrite<L, N>>,
         L: 'a,
@@ -403,7 +403,7 @@ impl<L: Language> Explanation<L> {
         }
     }
 
-    fn check_rewrite_at<N: Analysis<L>>(
+    fn check_rewrite_at<N: Analysis>(
         &self,
         current: &FlatTerm<L>,
         next: &FlatTerm<L>,
@@ -436,7 +436,7 @@ impl<L: Language> Explanation<L> {
     }
 
     // if the rewrite is just patterns, then it can check it
-    fn check_rewrite<'a, N: Analysis<L>>(
+    fn check_rewrite<'a, N: Analysis>(
         current: &'a FlatTerm<L>,
         next: &'a FlatTerm<L>,
         rewrite: &Rewrite<L, N>,
@@ -610,7 +610,7 @@ pub struct FlatTerm<L: Language> {
     pub children: FlatExplanation<L>,
 }
 
-impl<L: Language + Display + FromOp> Display for FlatTerm<L> {
+impl<L: Language + Display> Display for FlatTerm<L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let s = self.get_sexp().to_string();
         write!(f, "{}", s)
@@ -667,7 +667,7 @@ impl<L: Language> Default for Explain<L> {
     }
 }
 
-impl<L: Language + Display + FromOp> FlatTerm<L> {
+impl<L: Language + Display> FlatTerm<L> {
     /// Convert this FlatTerm to an S-expression.
     /// See [`get_flat_string`](Explanation::get_flat_string) for the format of these expressions.
     pub fn get_string(&self) -> String {
@@ -705,13 +705,13 @@ impl<L: Language + Display + FromOp> FlatTerm<L> {
         expr
     }
 
-    /// Convert this FlatTerm to a RecExpr.
-    pub fn get_recexpr(&self) -> RecExpr<L> {
-        self.remove_rewrites().to_string().parse().unwrap()
-    }
+    // Convert this FlatTerm to a RecExpr.
+    //pub fn get_recexpr(&self) -> RecExpr<L> {
+    //    self.remove_rewrites().to_string().parse().unwrap()
+    //}
 }
 
-impl<L: Language + Display + FromOp> Display for TreeTerm<L> {
+impl<L: Language + Display> Display for TreeTerm<L> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut buf = String::new();
         let width = 80;
@@ -720,7 +720,7 @@ impl<L: Language + Display + FromOp> Display for TreeTerm<L> {
     }
 }
 
-impl<L: Language + Display + FromOp> TreeTerm<L> {
+impl<L: Language + Display> TreeTerm<L> {
     /// Convert this TreeTerm to an S-expression.
     fn get_sexp(&self) -> Sexp {
         self.get_sexp_with_bindings(&Default::default())
@@ -898,7 +898,7 @@ impl<I: Eq + PartialEq> PartialOrd for HeapState<I> {
 }
 
 impl<L: Language> Explain<L> {
-    fn make_rule_table<'a, N: Analysis<L>>(
+    fn make_rule_table<'a, N: Analysis>(
         rules: &[&'a Rewrite<L, N>],
     ) -> HashMap<Symbol, &'a Rewrite<L, N>> {
         let mut table: HashMap<Symbol, &'a Rewrite<L, N>> = Default::default();
@@ -1100,7 +1100,7 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         FlatTerm::new(node, children)
     }
 
-    pub fn check_each_explain<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> bool {
+    pub fn check_each_explain<N: Analysis>(&self, rules: &[&Rewrite<L, N>]) -> bool {
         let rule_table = Explain::make_rule_table(rules);
         for i in 0..self.explainfind.len() {
             let explain_node = &self.explainfind[i];
@@ -1145,12 +1145,12 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         true
     }
 
-    pub(crate) fn explain_equivalence<N: Analysis<L>>(
+    pub(crate) fn explain_equivalence<N: Analysis>(
         &mut self,
         left: Id,
         right: Id,
         unionfind: &mut UnionFind,
-        classes: &HashMap<Id, EClass<L, N::Data>>,
+        classes: &HashMap<Id, EClass<N::Data>>,
     ) -> Explanation<L> {
         if self.optimize_explanation_lengths {
             self.calculate_shortest_explanations::<N>(left, right, classes, unionfind);
@@ -1586,9 +1586,9 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         distance_memo.parent_distance[usize::from(enode)].1.clone()
     }
 
-    fn find_congruence_neighbors<N: Analysis<L>>(
+    fn find_congruence_neighbors<N: Analysis>(
         &self,
-        classes: &HashMap<Id, EClass<L, N::Data>>,
+        classes: &HashMap<Id, EClass<N::Data>>,
         congruence_neighbors: &mut [Vec<Id>],
         unionfind: &UnionFind,
     ) {
@@ -1632,9 +1632,9 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         }
     }
 
-    pub fn get_num_congr<N: Analysis<L>>(
+    pub fn get_num_congr<N: Analysis>(
         &self,
-        classes: &HashMap<Id, EClass<L, N::Data>>,
+        classes: &HashMap<Id, EClass<N::Data>>,
         unionfind: &UnionFind,
     ) -> usize {
         let mut congruence_neighbors = vec![vec![]; self.explainfind.len()];
@@ -1849,9 +1849,9 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         self.explainfind[usize::from(enode)].parent_connection.next
     }
 
-    fn calculate_common_ancestor<N: Analysis<L>>(
+    fn calculate_common_ancestor<N: Analysis>(
         &self,
-        classes: &HashMap<Id, EClass<L, N::Data>>,
+        classes: &HashMap<Id, EClass<N::Data>>,
         congruence_neighbors: &[Vec<Id>],
     ) -> HashMap<(Id, Id), Id> {
         let mut common_ancestor_queries = HashMap::default();
@@ -1917,11 +1917,11 @@ impl<'x, L: Language> ExplainNodes<'x, L> {
         common_ancestor
     }
 
-    fn calculate_shortest_explanations<N: Analysis<L>>(
+    fn calculate_shortest_explanations<N: Analysis>(
         &mut self,
         start: Id,
         end: Id,
-        classes: &HashMap<Id, EClass<L, N::Data>>,
+        classes: &HashMap<Id, EClass<N::Data>>,
         unionfind: &UnionFind,
     ) {
         let mut congruence_neighbors = vec![vec![]; self.explainfind.len()];

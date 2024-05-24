@@ -100,9 +100,9 @@ impl<L: Language> PatternAst<L> {
     }
 }
 
-impl<L: Language> Pattern<L> {
+impl Pattern<Expr> {
     /// Creates a new pattern from the given pattern ast.
-    pub fn new(ast: PatternAst<L>) -> Self {
+    pub fn new(ast: PatternAst<Expr>) -> Self {
         let ast = ast.compact();
         let program = machine::Program::compile_from_pat(&ast);
         Pattern { ast, program }
@@ -197,48 +197,48 @@ pub enum ENodeOrVarParseError<E> {
     BadOp(E),
 }
 
-impl<L: FromOp> FromOp for ENodeOrVar<L> {
-    type Error = ENodeOrVarParseError<L::Error>;
+//impl<L: FromOp> FromOp for ENodeOrVar<L> {
+//    type Error = ENodeOrVarParseError<L::Error>;
+//
+//    fn from_op(op: &str, children: Vec<Id>) -> Result<Self, Self::Error> {
+//        use ENodeOrVarParseError::*;
+//
+//        if op.starts_with('?') && op.len() > 1 {
+//            if children.is_empty() {
+//                op.parse().map(Self::Var).map_err(BadVar)
+//            } else {
+//                Err(UnexpectedVar(op.to_owned()))
+//            }
+//        } else {
+//            L::from_op(op, children).map(Self::ENode).map_err(BadOp)
+//        }
+//    }
+//}
 
-    fn from_op(op: &str, children: Vec<Id>) -> Result<Self, Self::Error> {
-        use ENodeOrVarParseError::*;
+//impl<L: FromOp> std::str::FromStr for Pattern<L> {
+//    type Err = RecExprParseError<ENodeOrVarParseError<L::Error>>;
+//
+//    fn from_str(s: &str) -> Result<Self, Self::Err> {
+//        PatternAst::from_str(s).map(Self::from)
+//    }
+//}
 
-        if op.starts_with('?') && op.len() > 1 {
-            if children.is_empty() {
-                op.parse().map(Self::Var).map_err(BadVar)
-            } else {
-                Err(UnexpectedVar(op.to_owned()))
-            }
-        } else {
-            L::from_op(op, children).map(Self::ENode).map_err(BadOp)
-        }
-    }
-}
-
-impl<L: FromOp> std::str::FromStr for Pattern<L> {
-    type Err = RecExprParseError<ENodeOrVarParseError<L::Error>>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        PatternAst::from_str(s).map(Self::from)
-    }
-}
-
-impl<'a, L: Language> From<&'a [L]> for Pattern<L> {
-    fn from(expr: &'a [L]) -> Self {
+impl<'a> From<&'a [Expr]> for Pattern<Expr> {
+    fn from(expr: &'a [Expr]) -> Self {
         let nodes: Vec<_> = expr.iter().cloned().map(ENodeOrVar::ENode).collect();
         let ast = RecExpr::from(nodes);
         Self::new(ast)
     }
 }
 
-impl<L: Language> From<&RecExpr<L>> for Pattern<L> {
-    fn from(expr: &RecExpr<L>) -> Self {
+impl From<&RecExpr<Expr>> for Pattern<Expr> {
+    fn from(expr: &RecExpr<Expr>) -> Self {
         Self::from(expr.as_ref())
     }
 }
 
-impl<L: Language> From<PatternAst<L>> for Pattern<L> {
-    fn from(ast: PatternAst<L>) -> Self {
+impl From<PatternAst<Expr>> for Pattern<Expr> {
+    fn from(ast: PatternAst<Expr>) -> Self {
         Self::new(ast)
     }
 }
@@ -280,12 +280,12 @@ pub struct SearchMatches<'a, L: Language> {
     pub ast: Option<Cow<'a, PatternAst<L>>>,
 }
 
-impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
-    fn get_pattern_ast(&self) -> Option<&PatternAst<L>> {
+impl Searcher<Expr, ConstFolding> for Pattern<Expr> {
+    fn get_pattern_ast(&self) -> Option<&PatternAst<Expr>> {
         Some(&self.ast)
     }
 
-    fn search_with_limit(&self, egraph: &EGraph<L, A>, limit: usize) -> Vec<SearchMatches<L>> {
+    fn search_with_limit(&self, egraph: &EGraph, limit: usize) -> Vec<SearchMatches<Expr>> {
         match self.ast.as_ref().last().unwrap() {
             ENodeOrVar::ENode(e) => {
                 let key = e.discriminant();
@@ -310,10 +310,10 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
 
     fn search_eclass_with_limit(
         &self,
-        egraph: &EGraph<L, A>,
+        egraph: &EGraph,
         eclass: Id,
         limit: usize,
-    ) -> Option<SearchMatches<L>> {
+    ) -> Option<SearchMatches<Expr>> {
         let substs = self.program.run_with_limit(egraph, eclass, limit);
         if substs.is_empty() {
             None
@@ -332,19 +332,16 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
     }
 }
 
-impl<L, A> Applier<L, A> for Pattern<L>
-where
-    L: Language,
-    A: Analysis<L>,
+impl Applier<Expr, ConstFolding> for Pattern<Expr>
 {
-    fn get_pattern_ast(&self) -> Option<&PatternAst<L>> {
+    fn get_pattern_ast(&self) -> Option<&PatternAst<Expr>> {
         Some(&self.ast)
     }
 
     fn apply_matches(
         &self,
-        egraph: &mut EGraph<L, A>,
-        matches: &[SearchMatches<L>],
+        egraph: &mut EGraph,
+        matches: &[SearchMatches<Expr>],
         rule_name: Symbol,
     ) -> Vec<Id> {
         let mut added = vec![];
@@ -375,10 +372,10 @@ where
 
     fn apply_one(
         &self,
-        egraph: &mut EGraph<L, A>,
+        egraph: &mut EGraph,
         eclass: Id,
         subst: &Subst,
-        searcher_ast: Option<&PatternAst<L>>,
+        searcher_ast: Option<&PatternAst<Expr>>,
         rule_name: Symbol,
     ) -> Vec<Id> {
         let ast = self.ast.as_ref();
@@ -405,10 +402,10 @@ where
     }
 }
 
-pub(crate) fn apply_pat<L: Language, A: Analysis<L>>(
+pub(crate) fn apply_pat(
     ids: &mut [Id],
-    pat: &[ENodeOrVar<L>],
-    egraph: &mut EGraph<L, A>,
+    pat: &[ENodeOrVar<Expr>],
+    egraph: &mut EGraph,
     subst: &Subst,
 ) -> Id {
     debug_assert_eq!(pat.len(), ids.len());
@@ -429,107 +426,4 @@ pub(crate) fn apply_pat<L: Language, A: Analysis<L>>(
     *ids.last().unwrap()
 }
 
-#[cfg(test)]
-mod tests {
 
-    use crate::{SymbolLang as S, *};
-
-    type EGraph = crate::EGraph<S, ()>;
-
-    #[test]
-    fn simple_match() {
-        crate::init_logger();
-        let mut egraph = EGraph::default();
-
-        let (plus_id, _) = egraph.union_instantiations(
-            &"(+ x y)".parse().unwrap(),
-            &"(+ z w)".parse().unwrap(),
-            &Default::default(),
-            "union_plus".to_string(),
-        );
-        egraph.rebuild();
-
-        let commute_plus = rewrite!(
-            "commute_plus";
-            "(+ ?a ?b)" => "(+ ?b ?a)"
-        );
-
-        let matches = commute_plus.search(&egraph);
-        let n_matches: usize = matches.iter().map(|m| m.substs.len()).sum();
-        assert_eq!(n_matches, 2, "matches is wrong: {:#?}", matches);
-
-        let applications = commute_plus.apply(&mut egraph, &matches);
-        egraph.rebuild();
-        assert_eq!(applications.len(), 2);
-
-        let actual_substs: Vec<Subst> = matches.iter().flat_map(|m| m.substs.clone()).collect();
-
-        println!("Here are the substs!");
-        for m in &actual_substs {
-            println!("substs: {:?}", m);
-        }
-
-        egraph.dot().to_dot("target/simple-match.dot").unwrap();
-
-        use crate::extract::{AstSize, Extractor};
-
-        let ext = Extractor::new(&egraph, AstSize);
-        let (_, best) = ext.find_best(plus_id);
-        eprintln!("Best: {:#?}", best);
-    }
-
-    #[test]
-    fn nonlinear_patterns() {
-        crate::init_logger();
-        let mut egraph = EGraph::default();
-        egraph.add_expr(&"(f a a)".parse().unwrap());
-        egraph.add_expr(&"(f a (g a))))".parse().unwrap());
-        egraph.add_expr(&"(f a (g b))))".parse().unwrap());
-        egraph.add_expr(&"(h (foo a b) 0 1)".parse().unwrap());
-        egraph.add_expr(&"(h (foo a b) 1 0)".parse().unwrap());
-        egraph.add_expr(&"(h (foo a b) 0 0)".parse().unwrap());
-        egraph.rebuild();
-
-        let n_matches = |s: &str| s.parse::<Pattern<S>>().unwrap().n_matches(&egraph);
-
-        assert_eq!(n_matches("(f ?x ?y)"), 3);
-        assert_eq!(n_matches("(f ?x ?x)"), 1);
-        assert_eq!(n_matches("(f ?x (g ?y))))"), 2);
-        assert_eq!(n_matches("(f ?x (g ?x))))"), 1);
-        assert_eq!(n_matches("(h ?x 0 0)"), 1);
-    }
-
-    #[test]
-    fn search_with_limit() {
-        crate::init_logger();
-        let init_expr = &"(+ 1 (+ 2 (+ 3 (+ 4 (+ 5 6)))))".parse().unwrap();
-        let rules: Vec<Rewrite<_, ()>> = vec![
-            rewrite!("comm"; "(+ ?x ?y)" => "(+ ?y ?x)"),
-            rewrite!("assoc"; "(+ ?x (+ ?y ?z))" => "(+ (+ ?x ?y) ?z)"),
-        ];
-        let runner = Runner::default().with_expr(init_expr).run(&rules);
-        let egraph = &runner.egraph;
-
-        let len = |m: &Vec<SearchMatches<S>>| -> usize { m.iter().map(|m| m.substs.len()).sum() };
-
-        let pat = &"(+ ?x (+ ?y ?z))".parse::<Pattern<S>>().unwrap();
-        let m = pat.search(egraph);
-        let match_size = 2100;
-        assert_eq!(len(&m), match_size);
-
-        for limit in [1, 10, 100, 1000, 10000] {
-            let m = pat.search_with_limit(egraph, limit);
-            assert_eq!(len(&m), usize::min(limit, match_size));
-        }
-
-        let id = egraph.lookup_expr(init_expr).unwrap();
-        let m = pat.search_eclass(egraph, id).unwrap();
-        let match_size = 540;
-        assert_eq!(m.substs.len(), match_size);
-
-        for limit in [1, 10, 100, 1000] {
-            let m1 = pat.search_eclass_with_limit(egraph, id, limit).unwrap();
-            assert_eq!(m1.substs.len(), usize::min(limit, match_size));
-        }
-    }
-}

@@ -8,9 +8,74 @@ use std::{hash::Hash, str::FromStr};
 
 use crate::*;
 
-use fmt::Formatter;
 use symbolic_expressions::{Sexp, SexpError};
 use thiserror::Error;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Operator {
+    Add, Sub,
+    Mul, Div,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Expr {
+    Num(i32),
+    Symbol(String),
+    Binop(Operator, [Id; 2])
+}
+
+impl std::fmt::Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        todo!()
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ConstFolding;
+
+impl Analysis for ConstFolding {
+    type Data = Option<i32>;
+
+    fn make(egraph: &mut EGraph, enode: &Expr) -> Self::Data {
+        todo!()
+    }
+
+    fn merge(&mut self, a: &mut Self::Data, b: Self::Data) -> DidMerge {
+        todo!()
+    }
+}
+
+
+impl Language for Expr {
+    type Discriminant = std::mem::Discriminant<Expr>;
+
+    fn discriminant(&self) -> Self::Discriminant {
+        std::mem::discriminant(self)
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Expr::Num(n1), Expr::Num(n2)) => n1 == n2,
+            (Expr::Symbol(s1), Expr::Symbol(s2)) => s1 == s2,
+            (Expr::Binop(_, _), Expr::Binop(_, _)) => true,
+            _ => false,
+        }
+    }
+
+    fn children(&self) -> &[Id] {
+        match self {
+            Expr::Num(_) | Expr::Symbol(_) => &[],
+            Expr::Binop(_, ids) => ids,
+        }
+    }
+
+    fn children_mut(&mut self) -> &mut [Id] {
+        match self {
+            Expr::Num(_) | Expr::Symbol(_) => &mut [],
+            Expr::Binop(_, ids) => ids,
+        }
+    }
+}
 
 /// Trait that defines a Language whose terms will be in the [`EGraph`].
 ///
@@ -22,9 +87,6 @@ use thiserror::Error;
 /// `Add([Id; 2])` might be displayed as "+".
 ///
 /// To parse expressions from strings you should also implement [`FromOp`].
-///
-/// The [`define_language!`] macro automatically implements both [`Display`] and
-/// [`FromOp`].
 ///
 /// See [`SymbolLang`] for quick-and-dirty use cases.
 #[allow(clippy::len_without_is_empty)]
@@ -216,78 +278,6 @@ pub trait Language: Debug + Clone + Eq + Ord + Hash {
         let mut nodes: Vec<Self> = set.into_iter().collect();
         nodes.push(self.clone().map_children(|id| ids[&id]));
         Ok(RecExpr::from(nodes))
-    }
-}
-
-/// A trait for parsing e-nodes. This is implemented automatically by
-/// [`define_language!`].
-///
-/// If a [`Language`] implements both [`Display`] and [`FromOp`], the
-/// [`Display`] implementation should produce a string suitable for parsing by
-/// [`from_op`]:
-///
-/// ```
-/// # use egg::*;
-/// # use std::fmt::Display;
-/// fn from_op_display_compatible<T: FromOp + Display>(node: T) {
-///     let op = node.to_string();
-///     let mut children = Vec::new();
-///     node.for_each(|id| children.push(id));
-///     let parsed = T::from_op(&op, children).unwrap();
-///
-///     assert_eq!(node, parsed);
-/// }
-/// ```
-///
-/// # Examples
-/// `define_language!` implements [`FromOp`] and [`Display`] automatically:
-/// ```
-/// # use egg::*;
-///
-/// define_language! {
-///     enum Calc {
-///        "+" = Add([Id; 2]),
-///        Num(i32),
-///     }
-/// }
-///
-/// let add = Calc::Add([Id::from(0), Id::from(1)]);
-/// let parsed = Calc::from_op("+", vec![Id::from(0), Id::from(1)]).unwrap();
-///
-/// assert_eq!(add.to_string(), "+");
-/// assert_eq!(parsed, add);
-/// ```
-///
-/// [`from_op`]: FromOp::from_op
-pub trait FromOp: Language + Sized {
-    /// The error type returned by [`from_op`] if its arguments do not
-    /// represent a valid e-node.
-    ///
-    /// [`from_op`]: FromOp::from_op
-    type Error: Debug;
-
-    /// Parse an e-node with operator `op` and children `children`.
-    fn from_op(op: &str, children: Vec<Id>) -> Result<Self, Self::Error>;
-}
-
-/// A generic error for failing to parse an operator. This is the error type
-/// used by [`define_language!`] for [`FromOp::Error`], and is a sensible choice
-/// when implementing [`FromOp`] manually.
-#[derive(Debug, Error)]
-#[error("could not parse an e-node with operator {op:?} and children {children:?}")]
-pub struct FromOpError {
-    op: String,
-    children: Vec<Id>,
-}
-
-impl FromOpError {
-    /// Create a new `FromOpError` representing a failed call
-    /// `FromOp::from_op(op, children)`.
-    pub fn new(op: &str, children: Vec<Id>) -> Self {
-        Self {
-            op: op.to_owned(),
-            children,
-        }
     }
 }
 
@@ -559,45 +549,6 @@ pub enum RecExprParseError<E> {
     BadSexp(SexpError),
 }
 
-impl<L: FromOp> FromStr for RecExpr<L> {
-    type Err = RecExprParseError<L::Error>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use RecExprParseError::*;
-
-        fn parse_sexp_into<L: FromOp>(
-            sexp: &Sexp,
-            expr: &mut RecExpr<L>,
-        ) -> Result<Id, RecExprParseError<L::Error>> {
-            match sexp {
-                Sexp::Empty => Err(EmptySexp),
-                Sexp::String(s) => {
-                    let node = L::from_op(s, vec![]).map_err(BadOp)?;
-                    Ok(expr.add(node))
-                }
-                Sexp::List(list) if list.is_empty() => Err(EmptySexp),
-                Sexp::List(list) => match &list[0] {
-                    Sexp::Empty => unreachable!("Cannot be in head position"),
-                    list @ Sexp::List(..) => Err(HeadList(list.to_owned())),
-                    Sexp::String(op) => {
-                        let arg_ids: Vec<Id> = list[1..]
-                            .iter()
-                            .map(|s| parse_sexp_into(s, expr))
-                            .collect::<Result<_, _>>()?;
-                        let node = L::from_op(op, arg_ids).map_err(BadOp)?;
-                        Ok(expr.add(node))
-                    }
-                },
-            }
-        }
-
-        let mut expr = RecExpr::default();
-        let sexp = symbolic_expressions::parser::parse_str(s.trim()).map_err(BadSexp)?;
-        parse_sexp_into(&sexp, &mut expr)?;
-        Ok(expr)
-    }
-}
-
 /// Result of [`Analysis::merge`] indicating which of the inputs
 /// are different from the merged result.
 ///
@@ -662,7 +613,7 @@ impl Analysis<SimpleMath> for ConstantFolding {
         egg::merge_max(to, from)
     }
 
-    fn make(egraph: &mut EGraph<SimpleMath, Self>, enode: &SimpleMath) -> Self::Data {
+    fn make(egraph: &mut EGraph, enode: &SimpleMath) -> Self::Data {
         let x = |i: &Id| egraph[*i].data;
         match enode {
             SimpleMath::Num(n) => Some(*n),
@@ -672,7 +623,7 @@ impl Analysis<SimpleMath> for ConstantFolding {
         }
     }
 
-    fn modify(egraph: &mut EGraph<SimpleMath, Self>, id: Id) {
+    fn modify(egraph: &mut EGraph, id: Id) {
         if let Some(i) = egraph[id].data {
             let added = egraph.add(SimpleMath::Num(i));
             egraph.union(id, added);
@@ -698,7 +649,7 @@ assert_eq!(runner.egraph.find(runner.roots[0]), runner.egraph.find(just_foo));
 [`math.rs`]: https://github.com/egraphs-good/egg/blob/main/tests/math.rs
 [`prop.rs`]: https://github.com/egraphs-good/egg/blob/main/tests/prop.rs
 */
-pub trait Analysis<L: Language>: Sized {
+pub trait Analysis: Sized {
     /// The per-[`EClass`] data for this analysis.
     type Data: Debug;
 
@@ -712,7 +663,7 @@ pub trait Analysis<L: Language>: Sized {
     /// Doing so will create an infinite loop.
     ///
     /// Note that `enode`'s children may not be canonical
-    fn make(egraph: &mut EGraph<L, Self>, enode: &L) -> Self::Data;
+    fn make(egraph: &mut EGraph, enode: &Expr) -> Self::Data;
 
     /// An optional hook that allows inspection before a [`union`] occurs.
     /// When explanations are enabled, it gives two ids that represent the two particular terms being unioned, not the canonical ids for the two eclasses.
@@ -726,7 +677,7 @@ pub trait Analysis<L: Language>: Sized {
     /// [`union`]: EGraph::union()
     #[allow(unused_variables)]
     fn pre_union(
-        egraph: &EGraph<L, Self>,
+        egraph: &EGraph,
         id1: Id,
         id2: Id,
         justification: &Option<Justification>,
@@ -764,7 +715,7 @@ pub trait Analysis<L: Language>: Sized {
     /// This function is called immediately following
     /// `Analysis::merge` when unions are performed.
     #[allow(unused_variables)]
-    fn modify(egraph: &mut EGraph<L, Self>, id: Id) {}
+    fn modify(egraph: &mut EGraph, id: Id) {}
 
     /// Whether or not e-matching should allow finding cycles.
     ///
@@ -777,9 +728,9 @@ pub trait Analysis<L: Language>: Sized {
     }
 }
 
-impl<L: Language> Analysis<L> for () {
+impl Analysis for () {
     type Data = ();
-    fn make(_egraph: &mut EGraph<L, Self>, _enode: &L) -> Self::Data {}
+    fn make(_egraph: &mut EGraph, _enode: &Expr) -> Self::Data {}
     fn merge(&mut self, _: &mut Self::Data, _: Self::Data) -> DidMerge {
         DidMerge(false, false)
     }
@@ -880,18 +831,7 @@ impl Language for SymbolLang {
 }
 
 impl Display for SymbolLang {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.op, f)
-    }
-}
-
-impl FromOp for SymbolLang {
-    type Error = Infallible;
-
-    fn from_op(op: &str, children: Vec<Id>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            op: op.into(),
-            children,
-        })
     }
 }

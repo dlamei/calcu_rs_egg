@@ -1,5 +1,4 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
-#![warn(missing_docs)]
 /*!
 
 `egg` (**e**-**g**raphs **g**ood) is a e-graph library optimized for equality saturation.
@@ -27,7 +26,6 @@ for less or more logging.
 
 */
 #![doc = "## Simple Example\n```"]
-#![doc = include_str!("../tests/simple.rs")]
 #![doc = "\n```"]
 
 mod macros;
@@ -88,9 +86,8 @@ impl std::fmt::Display for Id {
 pub(crate) use {explain::Explain, unionfind::UnionFind};
 
 pub use {
-    dot::Dot,
     eclass::EClass,
-    egraph::{EGraph, LanguageMapper, SimpleLanguageMapper},
+    egraph::EGraph,
     explain::{
         Explanation, FlatExplanation, FlatTerm, Justification, TreeExplanation, TreeTerm,
         UnionEqualities,

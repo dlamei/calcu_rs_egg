@@ -7,11 +7,11 @@ use crate::*;
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde-1", derive(serde::Serialize, serde::Deserialize))]
-pub struct EClass<L, D> {
+pub struct EClass<D> {
     /// This eclass's id.
     pub id: Id,
     /// The equivalent enodes in this equivalence class.
-    pub nodes: Vec<L>,
+    pub nodes: Vec<Expr>,
     /// The analysis data associated with this eclass.
     ///
     /// Modifying this field will _not_ cause changes to propagate through the e-graph.
@@ -21,7 +21,7 @@ pub struct EClass<L, D> {
     pub(crate) parents: Vec<Id>,
 }
 
-impl<L, D> EClass<L, D> {
+impl<D> EClass<D> {
     /// Returns `true` if the `eclass` is empty.
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
@@ -33,7 +33,7 @@ impl<L, D> EClass<L, D> {
     }
 
     /// Iterates over the enodes in this eclass.
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = &L> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &Expr> {
         self.nodes.iter()
     }
 
@@ -43,16 +43,14 @@ impl<L, D> EClass<L, D> {
     }
 }
 
-impl<L: Language, D> EClass<L, D> {
+impl<D> EClass<D> {
     /// Iterates over the childless enodes in this eclass.
-    pub fn leaves(&self) -> impl Iterator<Item = &L> {
+    pub fn leaves(&self) -> impl Iterator<Item = &Expr> {
         self.nodes.iter().filter(|&n| n.is_leaf())
     }
 
     /// Asserts that the childless enodes in this eclass are unique.
     pub fn assert_unique_leaves(&self)
-    where
-        L: Language,
     {
         let mut leaves = self.leaves();
         if let Some(first) = leaves.next() {

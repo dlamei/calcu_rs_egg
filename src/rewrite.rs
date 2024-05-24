@@ -27,7 +27,7 @@ pub struct Rewrite<L, N> {
 impl<L, N> Debug for Rewrite<L, N>
 where
     L: Language + Display + 'static,
-    N: Analysis<L> + 'static,
+    N: Analysis + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("Rewrite");
@@ -50,7 +50,7 @@ where
     }
 }
 
-impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
+impl<L: Language, N: Analysis> Rewrite<L, N> {
     /// Create a new [`Rewrite`]. You typically want to use the
     /// [`rewrite!`] macro instead.
     ///
@@ -80,28 +80,28 @@ impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
     /// Call [`search`] on the [`Searcher`].
     ///
     /// [`search`]: Searcher::search()
-    pub fn search(&self, egraph: &EGraph<L, N>) -> Vec<SearchMatches<L>> {
+    pub fn search(&self, egraph: &EGraph) -> Vec<SearchMatches<L>> {
         self.searcher.search(egraph)
     }
 
     /// Call [`search_with_limit`] on the [`Searcher`].
     ///
     /// [`search_with_limit`]: Searcher::search_with_limit()
-    pub fn search_with_limit(&self, egraph: &EGraph<L, N>, limit: usize) -> Vec<SearchMatches<L>> {
+    pub fn search_with_limit(&self, egraph: &EGraph, limit: usize) -> Vec<SearchMatches<L>> {
         self.searcher.search_with_limit(egraph, limit)
     }
 
     /// Call [`apply_matches`] on the [`Applier`].
     ///
     /// [`apply_matches`]: Applier::apply_matches()
-    pub fn apply(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches<L>]) -> Vec<Id> {
+    pub fn apply(&self, egraph: &mut EGraph, matches: &[SearchMatches<L>]) -> Vec<Id> {
         self.applier.apply_matches(egraph, matches, self.name)
     }
 
     /// This `run` is for testing use only. You should use things
     /// from the `egg::run` module
     #[cfg(test)]
-    pub(crate) fn run(&self, egraph: &mut EGraph<L, N>) -> Vec<Id> {
+    pub(crate) fn run(&self, egraph: &mut EGraph) -> Vec<Id> {
         let start = crate::util::Instant::now();
 
         let matches = self.search(egraph);
@@ -125,13 +125,13 @@ impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
 /// Searches the given list of e-classes with a limit.
 pub(crate) fn search_eclasses_with_limit<'a, I, S, L, N>(
     searcher: &'a S,
-    egraph: &EGraph<L, N>,
+    egraph: &EGraph,
     eclasses: I,
     mut limit: usize,
 ) -> Vec<SearchMatches<'a, L>>
 where
     L: Language,
-    N: Analysis<L>,
+    N: Analysis,
     S: Searcher<L, N> + ?Sized,
     I: IntoIterator<Item = Id>,
 {
@@ -162,11 +162,11 @@ where
 pub trait Searcher<L, N>
 where
     L: Language,
-    N: Analysis<L>,
+    N: Analysis,
 {
     /// Search one eclass, returning None if no matches can be found.
     /// This should not return a SearchMatches with no substs.
-    fn search_eclass(&self, egraph: &EGraph<L, N>, eclass: Id) -> Option<SearchMatches<L>> {
+    fn search_eclass(&self, egraph: &EGraph, eclass: Id) -> Option<SearchMatches<L>> {
         self.search_eclass_with_limit(egraph, eclass, usize::MAX)
     }
 
@@ -179,7 +179,7 @@ where
     /// [`search_eclass_with_limit`]: Searcher::search_eclass_with_limit
     fn search_eclass_with_limit(
         &self,
-        egraph: &EGraph<L, N>,
+        egraph: &EGraph,
         eclass: Id,
         limit: usize,
     ) -> Option<SearchMatches<L>>;
@@ -187,19 +187,19 @@ where
     /// Search the whole [`EGraph`], returning a list of all the
     /// [`SearchMatches`] where something was found.
     /// This just calls [`Searcher::search_with_limit`] with a big limit.
-    fn search(&self, egraph: &EGraph<L, N>) -> Vec<SearchMatches<L>> {
+    fn search(&self, egraph: &EGraph) -> Vec<SearchMatches<L>> {
         self.search_with_limit(egraph, usize::MAX)
     }
 
     /// Similar to [`search`], but return at most `limit` many matches.
     ///
     /// [`search`]: Searcher::search
-    fn search_with_limit(&self, egraph: &EGraph<L, N>, limit: usize) -> Vec<SearchMatches<L>> {
+    fn search_with_limit(&self, egraph: &EGraph, limit: usize) -> Vec<SearchMatches<L>> {
         search_eclasses_with_limit(self, egraph, egraph.classes().map(|e| e.id), limit)
     }
 
     /// Returns the number of matches in the e-graph
-    fn n_matches(&self, egraph: &EGraph<L, N>) -> usize {
+    fn n_matches(&self, egraph: &EGraph) -> usize {
         self.search(egraph).iter().map(|m| m.substs.len()).sum()
     }
 
@@ -319,7 +319,7 @@ where
 pub trait Applier<L, N>
 where
     L: Language,
-    N: Analysis<L>,
+    N: Analysis,
 {
     /// Apply many substitutions.
     ///
@@ -332,7 +332,7 @@ where
     /// [`apply_one`]: Applier::apply_one()
     fn apply_matches(
         &self,
-        egraph: &mut EGraph<L, N>,
+        egraph: &mut EGraph,
         matches: &[SearchMatches<L>],
         rule_name: Symbol,
     ) -> Vec<Id> {
@@ -370,7 +370,7 @@ where
     /// [`apply_matches`]: Applier::apply_matches()
     fn apply_one(
         &self,
-        egraph: &mut EGraph<L, N>,
+        egraph: &mut EGraph,
         eclass: Id,
         subst: &Subst,
         searcher_ast: Option<&PatternAst<L>>,
@@ -416,7 +416,7 @@ where
     L: Language,
     C: Condition<L, N>,
     A: Applier<L, N>,
-    N: Analysis<L>,
+    N: Analysis,
 {
     fn get_pattern_ast(&self) -> Option<&PatternAst<L>> {
         self.applier.get_pattern_ast()
@@ -424,7 +424,7 @@ where
 
     fn apply_one(
         &self,
-        egraph: &mut EGraph<L, N>,
+        egraph: &mut EGraph,
         eclass: Id,
         subst: &Subst,
         searcher_ast: Option<&PatternAst<L>>,
@@ -457,14 +457,14 @@ where
 pub trait Condition<L, N>
 where
     L: Language,
-    N: Analysis<L>,
+    N: Analysis,
 {
     /// Check a condition.
     ///
     /// `eclass` is the eclass [`Id`] where the match (`subst`) occured.
     /// If this is true, then the [`ConditionalApplier`] will fire.
     ///
-    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> bool;
+    fn check(&self, egraph: &mut EGraph, eclass: Id, subst: &Subst) -> bool;
 
     /// Returns a list of variables that this Condition assumes are bound.
     ///
@@ -480,10 +480,10 @@ where
 impl<L, F, N> Condition<L, N> for F
 where
     L: Language,
-    N: Analysis<L>,
-    F: Fn(&mut EGraph<L, N>, Id, &Subst) -> bool,
+    N: Analysis,
+    F: Fn(&mut EGraph, Id, &Subst) -> bool,
 {
-    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> bool {
+    fn check(&self, egraph: &mut EGraph, eclass: Id, subst: &Subst) -> bool {
         self(egraph, eclass, subst)
     }
 }
@@ -506,24 +506,21 @@ impl<L: Language> ConditionEqual<L> {
     }
 }
 
-impl<L: FromOp> ConditionEqual<L> {
-    /// Create a ConditionEqual by parsing two pattern strings.
-    ///
-    /// This panics if the parsing fails.
-    pub fn parse(a1: &str, a2: &str) -> Self {
-        Self {
-            p1: a1.parse().unwrap(),
-            p2: a2.parse().unwrap(),
-        }
-    }
-}
+//impl<L: FromOp> ConditionEqual<L> {
+//    /// Create a ConditionEqual by parsing two pattern strings.
+//    ///
+//    /// This panics if the parsing fails.
+//    pub fn parse(a1: &str, a2: &str) -> Self {
+//        Self {
+//            p1: a1.parse().unwrap(),
+//            p2: a2.parse().unwrap(),
+//        }
+//    }
+//}
 
-impl<L, N> Condition<L, N> for ConditionEqual<L>
-where
-    L: Language,
-    N: Analysis<L>,
+impl Condition<Expr, ConstFolding> for ConditionEqual<Expr>
 {
-    fn check(&self, egraph: &mut EGraph<L, N>, _eclass: Id, subst: &Subst) -> bool {
+    fn check(&self, egraph: &mut EGraph, _eclass: Id, subst: &Subst) -> bool {
         let mut id_buf_1 = vec![0.into(); self.p1.ast.as_ref().len()];
         let mut id_buf_2 = vec![0.into(); self.p2.ast.as_ref().len()];
         let a1 = apply_pat(&mut id_buf_1, self.p1.ast.as_ref(), egraph, subst);
@@ -535,117 +532,5 @@ where
         let mut vars = self.p1.vars();
         vars.extend(self.p2.vars());
         vars
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use crate::{SymbolLang as S, *};
-    use std::str::FromStr;
-
-    type EGraph = crate::EGraph<S, ()>;
-
-    #[test]
-    fn conditional_rewrite() {
-        crate::init_logger();
-        let mut egraph = EGraph::default();
-
-        let x = egraph.add(S::leaf("x"));
-        let y = egraph.add(S::leaf("2"));
-        let mul = egraph.add(S::new("*", vec![x, y]));
-
-        let true_pat = Pattern::from_str("TRUE").unwrap();
-        egraph.add(S::leaf("TRUE"));
-
-        let pow2b = Pattern::from_str("(is-power2 ?b)").unwrap();
-        let mul_to_shift = rewrite!(
-            "mul_to_shift";
-            "(* ?a ?b)" => "(>> ?a (log2 ?b))"
-            if ConditionEqual::new(pow2b, true_pat)
-        );
-
-        println!("rewrite shouldn't do anything yet");
-        egraph.rebuild();
-        let apps = mul_to_shift.run(&mut egraph);
-        assert!(apps.is_empty());
-
-        println!("Add the needed equality");
-        egraph.union_instantiations(
-            &"(is-power2 2)".parse().unwrap(),
-            &"TRUE".parse().unwrap(),
-            &Default::default(),
-            "direct-union".to_string(),
-        );
-
-        println!("Should fire now");
-        egraph.rebuild();
-        let apps = mul_to_shift.run(&mut egraph);
-        assert_eq!(apps, vec![egraph.find(mul)]);
-    }
-
-    #[test]
-    fn fn_rewrite() {
-        crate::init_logger();
-        let mut egraph = EGraph::default();
-
-        let start = RecExpr::from_str("(+ x y)").unwrap();
-        let goal = RecExpr::from_str("xy").unwrap();
-
-        let root = egraph.add_expr(&start);
-
-        fn get(egraph: &EGraph, id: Id) -> Symbol {
-            egraph[id].nodes[0].op
-        }
-
-        #[derive(Debug)]
-        struct Appender {
-            _rhs: PatternAst<S>,
-        }
-
-        impl Applier<SymbolLang, ()> for Appender {
-            fn apply_one(
-                &self,
-                egraph: &mut EGraph,
-                eclass: Id,
-                subst: &Subst,
-                searcher_ast: Option<&PatternAst<SymbolLang>>,
-                rule_name: Symbol,
-            ) -> Vec<Id> {
-                let a: Var = "?a".parse().unwrap();
-                let b: Var = "?b".parse().unwrap();
-                let a = get(egraph, subst[a]);
-                let b = get(egraph, subst[b]);
-                let s = format!("{}{}", a, b);
-                if let Some(ast) = searcher_ast {
-                    let (id, did_something) = egraph.union_instantiations(
-                        ast,
-                        &PatternAst::from_str(&s).unwrap(),
-                        subst,
-                        rule_name,
-                    );
-                    if did_something {
-                        vec![id]
-                    } else {
-                        vec![]
-                    }
-                } else {
-                    let added = egraph.add(S::leaf(&s));
-                    if egraph.union(added, eclass) {
-                        vec![eclass]
-                    } else {
-                        vec![]
-                    }
-                }
-            }
-        }
-
-        let fold_add = rewrite!(
-            "fold_add"; "(+ ?a ?b)" => { Appender { _rhs: "?a".parse().unwrap()}}
-        );
-
-        egraph.rebuild();
-        fold_add.run(&mut egraph);
-        assert_eq!(egraph.equivs(&start, &goal), vec![egraph.find(root)]);
     }
 }

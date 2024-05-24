@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use crate::util::{hashmap_with_capacity, HashMap};
-use crate::{Analysis, EClass, EGraph, Id, Language, RecExpr};
+use crate::{Analysis, ConstFolding, EClass, EGraph, Expr, Id, Language, RecExpr};
 
 /** Extracting a single [`RecExpr`] from an [`EGraph`].
 
@@ -38,10 +38,10 @@ assert_eq!(best, "10".parse().unwrap());
 
 **/
 #[derive(Debug)]
-pub struct Extractor<'a, CF: CostFunction<L>, L: Language, N: Analysis<L>> {
+pub struct Extractor<'a, CF: CostFunction<L>, L: Language> {
     cost_function: CF,
     costs: HashMap<Id, (CF::Cost, L)>,
-    egraph: &'a EGraph<L, N>,
+    egraph: &'a EGraph,
 }
 
 /** A cost function that can be used by an [`Extractor`].
@@ -197,11 +197,9 @@ fn cmp<T: PartialOrd>(a: &Option<T>, b: &Option<T>) -> Ordering {
     }
 }
 
-impl<'a, CF, L, N> Extractor<'a, CF, L, N>
+impl<'a, CF> Extractor<'a, CF, Expr>
 where
-    CF: CostFunction<L>,
-    L: Language,
-    N: Analysis<L>,
+    CF: CostFunction<Expr>,
 {
     /// Create a new `Extractor` given an `EGraph` and a
     /// `CostFunction`.
@@ -209,7 +207,7 @@ where
     /// The extraction does all the work on creation, so this function
     /// performs the greedy search for cheapest representative of each
     /// eclass.
-    pub fn new(egraph: &'a EGraph<L, N>, cost_function: CF) -> Self {
+    pub fn new(egraph: &'a EGraph, cost_function: CF) -> Self {
         let costs = HashMap::default();
         let mut extractor = Extractor {
             costs,
@@ -223,14 +221,14 @@ where
 
     /// Find the cheapest (lowest cost) represented `RecExpr` in the
     /// given eclass.
-    pub fn find_best(&self, eclass: Id) -> (CF::Cost, RecExpr<L>) {
+    pub fn find_best(&self, eclass: Id) -> (CF::Cost, RecExpr<Expr>) {
         let (cost, root) = self.costs[&self.egraph.find(eclass)].clone();
         let expr = root.build_recexpr(|id| self.find_best_node(id).clone());
         (cost, expr)
     }
 
     /// Find the cheapest e-node in the given e-class.
-    pub fn find_best_node(&self, eclass: Id) -> &L {
+    pub fn find_best_node(&self, eclass: Id) -> &Expr {
         &self.costs[&self.egraph.find(eclass)].1
     }
 
@@ -240,7 +238,7 @@ where
         cost.clone()
     }
 
-    fn node_total_cost(&mut self, node: &L) -> Option<CF::Cost> {
+    fn node_total_cost(&mut self, node: &Expr) -> Option<CF::Cost> {
         let eg = &self.egraph;
         let has_cost = |id| self.costs.contains_key(&eg.find(id));
         if node.all(has_cost) {
@@ -284,33 +282,12 @@ where
         }
     }
 
-    fn make_pass(&mut self, eclass: &EClass<L, N::Data>) -> Option<(CF::Cost, L)> {
+    fn make_pass(&mut self, eclass: &EClass<<ConstFolding as Analysis>::Data>) -> Option<(CF::Cost, Expr)> {
         let (cost, node) = eclass
             .iter()
             .map(|n| (self.node_total_cost(n), n))
             .min_by(|a, b| cmp(&a.0, &b.0))
             .unwrap_or_else(|| panic!("Can't extract, eclass is empty: {:#?}", eclass));
         cost.map(|c| (c, node.clone()))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::*;
-
-    #[test]
-    fn ast_size_overflow() {
-        let rules: &[Rewrite<SymbolLang, ()>] =
-            &[rewrite!("explode"; "(meow ?a)" => "(meow (meow ?a ?a))")];
-
-        let start = "(meow 42)".parse().unwrap();
-        let runner = Runner::default()
-            .with_iter_limit(100)
-            .with_expr(&start)
-            .run(rules);
-
-        let extractor = Extractor::new(&runner.egraph, AstSize);
-        let (_, best_expr) = extractor.find_best(runner.roots[0]);
-        assert_eq!(best_expr, start);
     }
 }
