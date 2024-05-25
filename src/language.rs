@@ -7,8 +7,6 @@ use std::{
 
 use crate::*;
 
-use symbolic_expressions::Sexp;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Operator {
     Add,
@@ -24,8 +22,8 @@ pub enum Expr {
     Binop(Operator, [Id; 2]),
 }
 
-impl std::fmt::Display for Expr {
-    fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+impl Display for Expr {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
         todo!()
     }
 }
@@ -343,39 +341,39 @@ impl<L: Construct + Display> Display for RecExpr<L> {
         if self.nodes.is_empty() {
             Display::fmt("()", f)
         } else {
-            let s = self.to_sexp().to_string();
+            let s = self.to_sexpr().to_string();
             Display::fmt(&s, f)
         }
     }
 }
 
 impl<L: Construct + Display> RecExpr<L> {
-    /// Convert this RecExpr into an Sexp
-    pub(crate) fn to_sexp(&self) -> Sexp {
+    /// Convert this RecExpr into an Sexpr
+    pub(crate) fn to_sexpr(&self) -> SExpr {
         let last = self.nodes.len() - 1;
         if !self.is_dag() {
             log::warn!("Tried to print a non-dag: {:?}", self.nodes);
         }
-        self.to_sexp_rec(last, &mut |_| None)
+        self.to_sexpr_rec(last, &mut |_| None)
     }
 
-    fn to_sexp_rec(&self, i: usize, f: &mut impl FnMut(usize) -> Option<String>) -> Sexp {
+    fn to_sexpr_rec(&self, i: usize, f: &mut impl FnMut(usize) -> Option<String>) -> SExpr {
         let node = &self.nodes[i];
-        let op = Sexp::String(node.to_string());
+        let op = SExpr::String(node.to_string());
         if node.is_leaf() {
             op
         } else {
             let mut vec = vec![op];
             for child in node.children().iter().map(|i| usize::from(*i)) {
                 vec.push(if let Some(s) = f(child) {
-                    return Sexp::String(s);
+                    return SExpr::String(s);
                 } else if child < i {
-                    self.to_sexp_rec(child, f)
+                    self.to_sexpr_rec(child, f)
                 } else {
-                    Sexp::String(format!("<<<< CYCLE to {} = {:?} >>>>", i, node))
+                    SExpr::String(format!("<<<< CYCLE to {} = {:?} >>>>", i, node))
                 })
             }
-            Sexp::List(vec)
+            SExpr::List(vec)
         }
     }
 
@@ -383,10 +381,10 @@ impl<L: Construct + Display> RecExpr<L> {
     ///
     /// This gives you a nice, indented, pretty-printed s-expression.
     pub fn pretty(&self, width: usize) -> String {
-        let sexp = self.to_sexp();
+        let sexpr = self.to_sexpr();
 
         let mut buf = String::new();
-        pretty_print(&mut buf, &sexp, width, 1).unwrap();
+        pretty_print(&mut buf, &sexpr, width, 1).unwrap();
         buf
     }
 }

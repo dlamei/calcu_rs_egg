@@ -33,7 +33,6 @@ mod pattern;
 mod rewrite;
 mod run;
 mod subst;
-mod unionfind;
 mod util;
 
 /// A key to identify [`EClass`]es within an
@@ -65,7 +64,7 @@ impl std::fmt::Display for Id {
     }
 }
 
-pub(crate) use {explain::Explain, unionfind::UnionFind};
+pub(crate) use {explain::Explain, util::UnionFind};
 
 pub use {
     eclass::EClass,

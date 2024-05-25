@@ -176,7 +176,7 @@ pub struct Report {
     pub rebuild_time: f64,
 }
 
-impl std::fmt::Display for Report {
+impl fmt::Display for Report {
     #[rustfmt::skip]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "Runner report")?;

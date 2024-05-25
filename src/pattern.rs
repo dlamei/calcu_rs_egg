@@ -1,7 +1,7 @@
 use fmt::Formatter;
 use log::*;
-use std::convert::TryFrom;
 use std::{
+    convert::TryFrom,
     borrow::Cow,
     fmt::{self, Display},
 };
@@ -95,7 +95,7 @@ impl Pattern {
 }
 
 impl Pattern {
-    /// Pretty print this pattern as a sexp with the given width
+    /// Pretty print this pattern as a sexpr with the given width
     pub fn pretty(&self, width: usize) -> String {
         self.ast.pretty(width)
     }

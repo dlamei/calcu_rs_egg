@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use crate::util::{hashmap_with_capacity, HashMap};
-use crate::{Construct, EClass, EGraph, Expr, ExprAnalysis, Id, RecExpr};
+use crate::{Analysis, Construct, EClass, EGraph, Expr, ExprAnalysis, Id, RecExpr};
 
 /// Extracting a single [`RecExpr`] from an [`EGraph`].
 #[derive(Debug)]

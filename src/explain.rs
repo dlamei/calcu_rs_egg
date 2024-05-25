@@ -1,7 +1,4 @@
-use crate::{
-    util::pretty_print, Analysis, Construct, EClass, ENodeOrVar, HashMap, HashSet, Id, PatternAst,
-    Rewrite, UnionFind, Var,
-};
+use crate::{util::pretty_print, Analysis, Construct, EClass, ENodeOrVar, HashMap, HashSet, Id, PatternAst, Rewrite, UnionFind, Var, SExpr};
 use crate::{Expr, ExprAnalysis, Symbol};
 
 use std::cmp::Ordering;
@@ -9,8 +6,6 @@ use std::collections::{BinaryHeap, VecDeque};
 use std::fmt::{self, Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-
-use symbolic_expressions::Sexp;
 
 use num_bigint::BigUint;
 use num_traits::identities::{One, Zero};
@@ -120,7 +115,7 @@ pub struct Explanation {
 
 impl Display for Explanation {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let s = self.get_sexp().to_string();
+        let s = self.get_sexpr().to_string();
         f.write_str(&s)
     }
 }
@@ -160,7 +155,7 @@ impl Explanation {
     /// Steps such as factoring are shared via the let bindings.
     pub fn get_string_with_let(&self) -> String {
         let mut s = "".to_string();
-        pretty_print(&mut s, &self.get_sexp_with_let(), 100, 0).unwrap();
+        pretty_print(&mut s, &self.get_sexpr_with_let(), 100, 0).unwrap();
         s
     }
 
@@ -173,13 +168,13 @@ impl Explanation {
             .collect()
     }
 
-    fn get_sexp(&self) -> Sexp {
-        let mut items = vec![Sexp::String("Explanation".to_string())];
+    fn get_sexpr(&self) -> SExpr {
+        let mut items = vec![SExpr::String("Explanation".to_string())];
         for e in self.explanation_trees.iter() {
-            items.push(e.get_sexp());
+            items.push(e.get_sexpr());
         }
 
-        Sexp::List(items)
+        SExpr::List(items)
     }
 
     /// Get the size of this explanation tree in terms of the number of rewrites
@@ -227,38 +222,38 @@ impl Explanation {
         my_size
     }
 
-    fn get_sexp_with_let(&self) -> Sexp {
+    fn get_sexpr_with_let(&self) -> SExpr {
         let mut shared: HashSet<*const TreeTerm> = Default::default();
         let mut to_let_bind = vec![];
         for term in &self.explanation_trees {
             self.find_to_let_bind(term.clone(), &mut shared, &mut to_let_bind);
         }
 
-        let mut bindings: HashMap<*const TreeTerm, Sexp> = Default::default();
-        let mut generated_bindings: Vec<(Sexp, Sexp)> = Default::default();
+        let mut bindings: HashMap<*const TreeTerm, SExpr> = Default::default();
+        let mut generated_bindings: Vec<(SExpr, SExpr)> = Default::default();
         for to_bind in to_let_bind {
             if bindings.get(&(&*to_bind as *const TreeTerm)).is_none() {
-                let name = Sexp::String("v_".to_string() + &generated_bindings.len().to_string());
-                let ast = to_bind.get_sexp_with_bindings(&bindings);
+                let name = SExpr::String("v_".to_string() + &generated_bindings.len().to_string());
+                let ast = to_bind.get_sexpr_with_bindings(&bindings);
                 generated_bindings.push((name.clone(), ast));
                 bindings.insert(&*to_bind as *const TreeTerm, name);
             }
         }
 
-        let mut items = vec![Sexp::String("Explanation".to_string())];
+        let mut items = vec![SExpr::String("Explanation".to_string())];
         for e in self.explanation_trees.iter() {
             if let Some(existing) = bindings.get(&(&**e as *const TreeTerm)) {
                 items.push(existing.clone());
             } else {
-                items.push(e.get_sexp_with_bindings(&bindings));
+                items.push(e.get_sexpr_with_bindings(&bindings));
             }
         }
 
-        let mut result = Sexp::List(items);
+        let mut result = SExpr::List(items);
 
         for (name, expr) in generated_bindings.into_iter().rev() {
-            let let_expr = Sexp::List(vec![name, expr]);
-            result = Sexp::List(vec![Sexp::String("let".to_string()), let_expr, result]);
+            let let_expr = SExpr::List(vec![name, expr]);
+            result = SExpr::List(vec![SExpr::String("let".to_string()), let_expr, result]);
         }
 
         result
@@ -539,7 +534,7 @@ pub struct FlatTerm {
 
 impl Display for FlatTerm {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let s = self.get_sexp().to_string();
+        let s = self.get_sexpr().to_string();
         write!(f, "{}", s)
     }
 }
@@ -598,33 +593,33 @@ impl FlatTerm {
     /// Convert this FlatTerm to an S-expression.
     /// See [`get_flat_string`](Explanation::get_flat_string) for the format of these expressions.
     pub fn get_string(&self) -> String {
-        self.get_sexp().to_string()
+        self.get_sexpr().to_string()
     }
 
-    fn get_sexp(&self) -> Sexp {
-        let op = Sexp::String(self.node.to_string());
+    fn get_sexpr(&self) -> SExpr {
+        let op = SExpr::String(self.node.to_string());
         let mut expr = if self.node.is_leaf() {
             op
         } else {
             let mut vec = vec![op];
             for child in &self.children {
-                vec.push(child.get_sexp());
+                vec.push(child.get_sexpr());
             }
-            Sexp::List(vec)
+            SExpr::List(vec)
         };
 
         if let Some(rule_name) = &self.backward_rule {
-            expr = Sexp::List(vec![
-                Sexp::String("Rewrite<=".to_string()),
-                Sexp::String((*rule_name).to_string()),
+            expr = SExpr::List(vec![
+                SExpr::String("Rewrite<=".to_string()),
+                SExpr::String((*rule_name).to_string()),
                 expr,
             ]);
         }
 
         if let Some(rule_name) = &self.forward_rule {
-            expr = Sexp::List(vec![
-                Sexp::String("Rewrite=>".to_string()),
-                Sexp::String((*rule_name).to_string()),
+            expr = SExpr::List(vec![
+                SExpr::String("Rewrite=>".to_string()),
+                SExpr::String((*rule_name).to_string()),
                 expr,
             ]);
         }
@@ -637,19 +632,19 @@ impl Display for TreeTerm {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut buf = String::new();
         let width = 80;
-        pretty_print(&mut buf, &self.get_sexp(), width, 1).unwrap();
+        pretty_print(&mut buf, &self.get_sexpr(), width, 1).unwrap();
         write!(f, "{}", buf)
     }
 }
 
 impl TreeTerm {
     /// Convert this TreeTerm to an S-expression.
-    fn get_sexp(&self) -> Sexp {
-        self.get_sexp_with_bindings(&Default::default())
+    fn get_sexpr(&self) -> SExpr {
+        self.get_sexpr_with_bindings(&Default::default())
     }
 
-    fn get_sexp_with_bindings(&self, bindings: &HashMap<*const TreeTerm, Sexp>) -> Sexp {
-        let op = Sexp::String(self.node.to_string());
+    fn get_sexpr_with_bindings(&self, bindings: &HashMap<*const TreeTerm, SExpr>) -> SExpr {
+        let op = SExpr::String(self.node.to_string());
         let mut expr = if self.node.is_leaf() {
             op
         } else {
@@ -660,10 +655,10 @@ impl TreeTerm {
                     if let Some(existing) = bindings.get(&(&*child[0] as *const TreeTerm)) {
                         vec.push(existing.clone());
                     } else {
-                        vec.push(child[0].get_sexp_with_bindings(bindings));
+                        vec.push(child[0].get_sexpr_with_bindings(bindings));
                     }
                 } else {
-                    let mut child_expressions = vec![Sexp::String("Explanation".to_string())];
+                    let mut child_expressions = vec![SExpr::String("Explanation".to_string())];
                     for child_explanation in child.iter() {
                         if let Some(existing) =
                             bindings.get(&(&**child_explanation as *const TreeTerm))
@@ -671,27 +666,27 @@ impl TreeTerm {
                             child_expressions.push(existing.clone());
                         } else {
                             child_expressions
-                                .push(child_explanation.get_sexp_with_bindings(bindings));
+                                .push(child_explanation.get_sexpr_with_bindings(bindings));
                         }
                     }
-                    vec.push(Sexp::List(child_expressions));
+                    vec.push(SExpr::List(child_expressions));
                 }
             }
-            Sexp::List(vec)
+            SExpr::List(vec)
         };
 
         if let Some(rule_name) = &self.backward_rule {
-            expr = Sexp::List(vec![
-                Sexp::String("Rewrite<=".to_string()),
-                Sexp::String((*rule_name).to_string()),
+            expr = SExpr::List(vec![
+                SExpr::String("Rewrite<=".to_string()),
+                SExpr::String((*rule_name).to_string()),
                 expr,
             ]);
         }
 
         if let Some(rule_name) = &self.forward_rule {
-            expr = Sexp::List(vec![
-                Sexp::String("Rewrite=>".to_string()),
-                Sexp::String((*rule_name).to_string()),
+            expr = SExpr::List(vec![
+                SExpr::String("Rewrite=>".to_string()),
+                SExpr::String((*rule_name).to_string()),
                 expr,
             ]);
         }

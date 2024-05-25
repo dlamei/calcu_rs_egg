@@ -1,10 +1,40 @@
 use std::{fmt, iter::FromIterator};
-use symbolic_expressions::Sexp;
 
 use fmt::{Debug, Display, Formatter};
 
 #[allow(unused_imports)]
 use crate::*;
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SExpr {
+    /// plain String symbolic-expression
+    String(String),
+    /// list symbolic-expression
+    List(Vec<SExpr>),
+    /// empty, trivial symbolic-expression
+    Empty,
+}
+
+impl Display for SExpr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            SExpr::String(ref s) => write!(f, "{s}"),
+            SExpr::List(ref v) => {
+                write!(f, "(")?;
+                let l = v.len();
+                for (i, x) in v.iter().enumerate() {
+                    if i < l - 1 {
+                        write!(f, "{} ", x)?;
+                    } else {
+                        write!(f, "{}", x)?;
+                    }
+                }
+                write!(f, ")")
+            }
+            SExpr::Empty => Ok(()),
+        }
+    }
+}
 
 /// An interned string.
 ///
@@ -63,13 +93,13 @@ pub(crate) fn concat_vecs<T>(to: &mut Vec<T>, mut from: Vec<T>) {
 
 pub(crate) fn pretty_print(
     buf: &mut String,
-    sexp: &Sexp,
+    sexpr: &SExpr,
     width: usize,
     level: usize,
 ) -> std::fmt::Result {
     use std::fmt::Write;
-    if let Sexp::List(list) = sexp {
-        let indent = sexp.to_string().len() > width;
+    if let SExpr::List(list) = sexpr {
+        let indent = sexpr.to_string().len() > width;
         write!(buf, "(")?;
 
         for (i, val) in list.iter().enumerate() {
@@ -89,7 +119,7 @@ pub(crate) fn pretty_print(
         Ok(())
     } else {
         // I don't care about quotes
-        write!(buf, "{}", sexp.to_string().trim_matches('"'))
+        write!(buf, "{}", sexpr.to_string().trim_matches('"'))
     }
 }
 
@@ -182,5 +212,94 @@ where
             queue.insert(t);
         }
         queue
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UnionFind {
+    parents: Vec<Id>,
+}
+
+impl UnionFind {
+    pub fn make_set(&mut self) -> Id {
+        let id = Id::from(self.parents.len());
+        self.parents.push(id);
+        id
+    }
+
+    pub fn size(&self) -> usize {
+        self.parents.len()
+    }
+
+    fn parent(&self, query: Id) -> Id {
+        self.parents[usize::from(query)]
+    }
+
+    fn parent_mut(&mut self, query: Id) -> &mut Id {
+        &mut self.parents[usize::from(query)]
+    }
+
+    pub fn find(&self, mut current: Id) -> Id {
+        while current != self.parent(current) {
+            current = self.parent(current)
+        }
+        current
+    }
+
+    pub fn find_mut(&mut self, mut current: Id) -> Id {
+        while current != self.parent(current) {
+            let grandparent = self.parent(self.parent(current));
+            *self.parent_mut(current) = grandparent;
+            current = grandparent;
+        }
+        current
+    }
+
+    /// Given two leader ids, unions the two eclasses making root1 the leader.
+    pub fn union(&mut self, root1: Id, root2: Id) -> Id {
+        *self.parent_mut(root2) = root1;
+        root1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(us: impl IntoIterator<Item = usize>) -> Vec<Id> {
+        us.into_iter().map(|u| u.into()).collect()
+    }
+
+    #[test]
+    fn union_find() {
+        let n = 10;
+        let id = Id::from;
+
+        let mut uf = UnionFind::default();
+        for _ in 0..n {
+            uf.make_set();
+        }
+
+        // test the initial condition of everyone in their own set
+        assert_eq!(uf.parents, ids(0..n));
+
+        // build up one set
+        uf.union(id(0), id(1));
+        uf.union(id(0), id(2));
+        uf.union(id(0), id(3));
+
+        // build up another set
+        uf.union(id(6), id(7));
+        uf.union(id(6), id(8));
+        uf.union(id(6), id(9));
+
+        // this should compress all paths
+        for i in 0..n {
+            uf.find_mut(id(i));
+        }
+
+        // indexes:         0, 1, 2, 3, 4, 5, 6, 7, 8, 9
+        let expected = vec![0, 0, 0, 0, 4, 5, 6, 6, 6, 6];
+        assert_eq!(uf.parents, ids(expected));
     }
 }
