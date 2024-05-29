@@ -4,6 +4,7 @@ use std::{
     fmt::{self, Debug, Display},
     hash::Hash,
 };
+use std::fmt::Formatter;
 
 use crate::*;
 
@@ -15,6 +16,20 @@ pub enum Operator {
     Div,
 }
 
+impl Display for Operator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let op =
+        match self {
+            Operator::Add => "+",
+            Operator::Sub => "-",
+            Operator::Mul => "*",
+            Operator::Div => "/",
+        };
+        write!(f, "{op}")
+    }
+}
+
+// TODO: merge [Expr] and [ENodeOrVar] ?
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Expr {
     Num(i32),
@@ -23,8 +38,12 @@ pub enum Expr {
 }
 
 impl Display for Expr {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Num(n) => write!(f, "{n}"),
+            Expr::Symbol(s) => write!(f, "{s}"),
+            Expr::Binop(op, _) => write!(f, "{op}"),
+        }
     }
 }
 
@@ -32,14 +51,14 @@ impl Display for Expr {
 pub struct ExprAnalysis;
 
 impl Analysis for ExprAnalysis {
-    type Data = Option<i32>;
+    type Data = ();
 
     fn make(_egraph: &mut EGraph, _enode: &Expr) -> Self::Data {
-        todo!()
+        ()
     }
 
     fn merge(&mut self, _a: &mut Self::Data, _b: Self::Data) -> DidMerge {
-        todo!()
+        DidMerge(false, false)
     }
 }
 
@@ -59,14 +78,14 @@ impl Construct for Expr {
         }
     }
 
-    fn children(&self) -> &[Id] {
+    fn operands(&self) -> &[Id] {
         match self {
             Expr::Num(_) | Expr::Symbol(_) => &[],
             Expr::Binop(_, ids) => ids,
         }
     }
 
-    fn children_mut(&mut self) -> &mut [Id] {
+    fn operands_mut(&mut self) -> &mut [Id] {
         match self {
             Expr::Num(_) | Expr::Symbol(_) => &mut [],
             Expr::Binop(_, ids) => ids,
@@ -89,25 +108,25 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
     /// This should only consider the operator, not the children `Id`s.
     fn matches(&self, other: &Self) -> bool;
 
-    /// Returns the children of this e-node.
-    fn children(&self) -> &[Id];
+    /// Returns the operands of this e-node.
+    fn operands(&self) -> &[Id];
 
-    /// Returns a mutable slice of the children of this e-node.
-    fn children_mut(&mut self) -> &mut [Id];
+    /// Returns a mutable slice of the operands of this e-node.
+    fn operands_mut(&mut self) -> &mut [Id];
 
-    /// Runs a given function on each child `Id`.
-    fn for_each<F: FnMut(Id)>(&self, f: F) {
-        self.children().iter().copied().for_each(f)
+    /// Runs a given function on each operand `Id`.
+    fn for_each_oprnd<F: FnMut(Id)>(&self, f: F) {
+        self.operands().iter().copied().for_each(f)
     }
 
-    /// Runs a given function on each child `Id`, allowing mutation of that `Id`.
-    fn for_each_mut<F: FnMut(&mut Id)>(&mut self, f: F) {
-        self.children_mut().iter_mut().for_each(f)
+    /// Runs a given function on each operand `Id`, allowing mutation of that `Id`.
+    fn for_each_oprnd_mut<F: FnMut(&mut Id)>(&mut self, f: F) {
+        self.operands_mut().iter_mut().for_each(f)
     }
 
-    /// Runs a falliable function on each child, stopping if the function returns
+    /// Runs a falliable function on each operand, stopping if the function returns
     /// an error.
-    fn try_for_each<E, F>(&self, mut f: F) -> Result<(), E>
+    fn try_for_each_oprnd<E, F>(&self, mut f: F) -> Result<(), E>
     where
         F: FnMut(Id) -> Result<(), E>,
         E: Clone,
@@ -115,7 +134,7 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
         self.fold(Ok(()), |res, id| res.and_then(|_| f(id)))
     }
 
-    /// Returns the number of the children this enode has.
+    /// Returns the number of the operands this enode has.
     ///
     /// The default implementation uses `fold` to accumulate the number of
     /// children.
@@ -123,56 +142,56 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
         self.fold(0, |len, _| len + 1)
     }
 
-    /// Returns true if this enode has no children.
+    /// Returns true if this enode has no operands.
     fn is_leaf(&self) -> bool {
-        self.all(|_| false)
+        self.check_all(|_| false)
     }
 
-    /// Runs a given function to replace the children.
-    fn update_children<F: FnMut(Id) -> Id>(&mut self, mut f: F) {
-        self.for_each_mut(|id| *id = f(*id))
+    /// Runs a given function to replace the operands.
+    fn update_operands<F: FnMut(Id) -> Id>(&mut self, mut f: F) {
+        self.for_each_oprnd_mut(|id| *id = f(*id))
     }
 
-    /// Creates a new enode with children determined by the given function.
-    fn map_children<F: FnMut(Id) -> Id>(mut self, f: F) -> Self {
-        self.update_children(f);
+    /// Creates a new enode with operands determined by the given function.
+    fn map_operands<F: FnMut(Id) -> Id>(mut self, f: F) -> Self {
+        self.update_operands(f);
         self
     }
 
-    /// Folds over the children, given an initial accumulator.
+    /// Folds over the operands, given an initial accumulator.
     fn fold<F, T>(&self, init: T, mut f: F) -> T
     where
         F: FnMut(T, Id) -> T,
         T: Clone,
     {
         let mut acc = init;
-        self.for_each(|id| acc = f(acc.clone(), id));
+        self.for_each_oprnd(|id| acc = f(acc.clone(), id));
         acc
     }
 
-    /// Returns true if the predicate is true on all children.
+    /// Returns true if the predicate is true on all operands.
     /// Does not short circuit.
-    fn all<F: FnMut(Id) -> bool>(&self, mut f: F) -> bool {
+    fn check_all<F: FnMut(Id) -> bool>(&self, mut f: F) -> bool {
         self.fold(true, |acc, id| acc && f(id))
     }
 
-    /// Returns true if the predicate is true on any children.
+    /// Returns true if the predicate is true on any operand.
     /// Does not short circuit.
     fn is_any<F: FnMut(Id) -> bool>(&self, mut f: F) -> bool {
         self.fold(false, |acc, id| acc || f(id))
     }
 
-    /// Make a [`RecExpr`] by mapping this enodes children to other [`RecExpr`]s.
+    /// Make a [`RecExpr`] by mapping this enodes operands to other [`RecExpr`]s.
     ///
     /// This can be used to join together different expression with a new node.
-    fn join_recexprs<F, Expr>(&self, mut child_recexpr: F) -> RecExpr<Self>
+    fn join_recexprs<F, E>(&self, mut child_recexpr: F) -> RecExpr<Self>
     where
-        F: FnMut(Id) -> Expr,
-        Expr: AsRef<[Self]>,
+        F: FnMut(Id) -> E,
+        E: AsRef<[Self]>,
     {
         fn build<L: Construct>(to: &mut RecExpr<L>, from: &[L]) -> Id {
             let last = from.last().unwrap().clone();
-            let new_node = last.map_children(|id| {
+            let new_node = last.map_operands(|id| {
                 let i = usize::from(id) + 1;
                 build(to, &from[0..i])
             });
@@ -182,7 +201,7 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
         let mut expr = RecExpr::default();
         let node = self
             .clone()
-            .map_children(|id| build(&mut expr, child_recexpr(id).as_ref()));
+            .map_operands(|id| build(&mut expr, child_recexpr(id).as_ref()));
         expr.add(node);
         expr
     }
@@ -206,7 +225,7 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
     {
         let mut set = IndexSet::<Self>::default();
         let mut ids = HashMap::<Id, Id>::default();
-        let mut todo = self.children().to_vec();
+        let mut todo = self.operands().to_vec();
 
         while let Some(id) = todo.last().copied() {
             if ids.contains_key(&id) {
@@ -218,7 +237,7 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
 
             // check to see if we can do this node yet
             let mut ids_has_all_children = true;
-            for child in node.children() {
+            for child in node.operands() {
                 if !ids.contains_key(child) {
                     ids_has_all_children = false;
                     todo.push(*child)
@@ -227,7 +246,7 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
 
             // all children are processed, so we can lookup this node safely
             if ids_has_all_children {
-                let node = node.map_children(|id| ids[&id]);
+                let node = node.map_operands(|id| ids[&id]);
                 let new_id = set.insert_full(node).0;
                 ids.insert(id, Id::from(new_id));
                 todo.pop();
@@ -236,7 +255,7 @@ pub trait Construct: Debug + Clone + Eq + Ord + Hash {
 
         // finally, add the root node and create the expression
         let mut nodes: Vec<Self> = set.into_iter().collect();
-        nodes.push(self.clone().map_children(|id| ids[&id]));
+        nodes.push(self.clone().map_operands(|id| ids[&id]));
         Ok(RecExpr::from(nodes))
     }
 }
@@ -285,7 +304,7 @@ impl<L: Construct> RecExpr<L> {
     /// The enode's children `Id`s must refer to elements already in this list.
     pub fn add(&mut self, node: L) -> Id {
         debug_assert!(
-            node.all(|id| usize::from(id) < self.nodes.len()),
+            node.check_all(|id| usize::from(id) < self.nodes.len()),
             "node {:?} has children not in this expr: {:?}",
             node,
             self
@@ -298,7 +317,7 @@ impl<L: Construct> RecExpr<L> {
         let mut ids = hashmap_with_capacity::<Id, Id>(self.nodes.len());
         let mut set = IndexSet::default();
         for (i, node) in self.nodes.drain(..).enumerate() {
-            let node = node.map_children(|id| ids[&id]);
+            let node = node.map_operands(|id| ids[&id]);
             let new_id = set.insert_full(node).0;
             ids.insert(Id::from(i), Id::from(new_id));
         }
@@ -313,7 +332,7 @@ impl<L: Construct> RecExpr<L> {
     /// Checks if this expr is a DAG, i.e. doesn't have any back edges
     pub fn is_dag(&self) -> bool {
         for (i, n) in self.nodes.iter().enumerate() {
-            for &child in n.children() {
+            for &child in n.operands() {
                 if usize::from(child) >= i {
                     return false;
                 }
@@ -364,7 +383,7 @@ impl<L: Construct + Display> RecExpr<L> {
             op
         } else {
             let mut vec = vec![op];
-            for child in node.children().iter().map(|i| usize::from(*i)) {
+            for child in node.operands().iter().map(|i| usize::from(*i)) {
                 vec.push(if let Some(s) = f(child) {
                     return SExpr::String(s);
                 } else if child < i {
@@ -549,5 +568,55 @@ pub fn merge_option<T>(
         }
         (Some(_), None) => DidMerge(false, true),
         (Some(a), Some(b)) => merge_fn(a, b),
+    }
+}
+
+
+#[cfg(test)]
+mod expr_test {
+    use crate::*;
+
+    #[test]
+    fn basic_rules() {
+        let mut x = RecExpr::default();
+        x.add(Expr::Symbol("x".into()));
+
+        let mut zero = RecExpr::default();
+        zero.add(Expr::Num(0));
+
+        let mut add_expr = RecExpr::default();
+        let lhs = add_expr.add(Expr::Num(0));
+        let rhs = add_expr.add(Expr::Symbol("x".into()));
+        let add = Expr::Binop(Operator::Add, [lhs, rhs]);
+        add_expr.add(add);
+
+        let mut mul_expr = RecExpr::default();
+        let lhs = mul_expr.add(Expr::Num(0));
+        let rhs = mul_expr.add(Expr::Symbol("x".into()));
+        let mul = Expr::Binop(Operator::Mul, [lhs, rhs]);
+        mul_expr.add(mul);
+
+
+        let r1 = {
+            let searcher = Pattern::from(&add_expr);
+            let applier = Pattern::from(&x);
+            Rewrite::new("0 + x -> x", searcher, applier).unwrap()
+        };
+        let r2 = {
+            let searcher = Pattern::from(&mul_expr);
+            let applier = Pattern::from(&zero);
+            Rewrite::new("0 * x -> 0", searcher, applier).unwrap()
+        };
+
+        let rules = [r1, r2];
+        let runner = Runner::default().with_expr(&add_expr).run(&rules);
+        let extractor = Extractor::new(&runner.egraph, AstSize);
+        let (_bc, be) = extractor.find_best(runner.roots[0]);
+        assert_eq!(be, x, "0 + x !-> x");
+
+        let runner = Runner::default().with_expr(&mul_expr).run(&rules);
+        let extractor = Extractor::new(&runner.egraph, AstSize);
+        let (_bc, be) = extractor.find_best(runner.roots[0]);
+        assert_eq!(be, zero, "0 * x !-> 0");
     }
 }

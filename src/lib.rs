@@ -20,13 +20,10 @@ for less or more logging.
 
 */
 
-mod eclass;
 mod egraph;
 mod explain;
 mod extract;
 mod language;
-#[cfg(feature = "lp")]
-mod lp_extract;
 mod machine;
 mod multipattern;
 mod pattern;
@@ -64,10 +61,10 @@ impl std::fmt::Display for Id {
     }
 }
 
-pub(crate) use {explain::Explain, util::UnionFind};
+pub(crate) use {explain::Explain, util::EClassUnion};
 
 pub use {
-    eclass::EClass,
+    egraph::EClass,
     egraph::EGraph,
     explain::{
         Explanation, FlatExplanation, FlatTerm, Justification, TreeExplanation, TreeTerm,
@@ -82,9 +79,6 @@ pub use {
     subst::{Subst, Var},
     util::*,
 };
-
-#[cfg(feature = "lp")]
-pub use lp_extract::*;
 
 #[cfg(test)]
 fn init_logger() {

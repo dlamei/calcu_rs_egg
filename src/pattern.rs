@@ -133,16 +133,16 @@ impl Construct for ENodeOrVar {
         panic!("Should never call this")
     }
 
-    fn children(&self) -> &[Id] {
+    fn operands(&self) -> &[Id] {
         match self {
-            ENodeOrVar::ENode(n) => n.children(),
+            ENodeOrVar::ENode(n) => n.operands(),
             ENodeOrVar::Var(_) => &[],
         }
     }
 
-    fn children_mut(&mut self) -> &mut [Id] {
+    fn operands_mut(&mut self) -> &mut [Id] {
         match self {
-            ENodeOrVar::ENode(n) => n.children_mut(),
+            ENodeOrVar::ENode(n) => n.operands_mut(),
             ENodeOrVar::Var(_) => &mut [],
         }
     }
@@ -215,8 +215,23 @@ pub struct SearchMatches<'a> {
 }
 
 impl Searcher for Pattern {
-    fn get_pattern_ast(&self) -> Option<&PatternAst> {
-        Some(&self.ast)
+    fn search_eclass_with_limit(
+        &self,
+        egraph: &EGraph,
+        eclass: Id,
+        limit: usize,
+    ) -> Option<SearchMatches> {
+        let substs = self.program.run_with_limit(egraph, eclass, limit);
+        if substs.is_empty() {
+            None
+        } else {
+            let ast = Some(Cow::Borrowed(&self.ast));
+            Some(SearchMatches {
+                eclass,
+                substs,
+                ast,
+            })
+        }
     }
 
     fn search_with_limit(&self, egraph: &EGraph, limit: usize) -> Vec<SearchMatches> {
@@ -242,23 +257,8 @@ impl Searcher for Pattern {
         }
     }
 
-    fn search_eclass_with_limit(
-        &self,
-        egraph: &EGraph,
-        eclass: Id,
-        limit: usize,
-    ) -> Option<SearchMatches> {
-        let substs = self.program.run_with_limit(egraph, eclass, limit);
-        if substs.is_empty() {
-            None
-        } else {
-            let ast = Some(Cow::Borrowed(&self.ast));
-            Some(SearchMatches {
-                eclass,
-                substs,
-                ast,
-            })
-        }
+    fn get_pattern_ast(&self) -> Option<&PatternAst> {
+        Some(&self.ast)
     }
 
     fn vars(&self) -> Vec<Var> {
@@ -267,10 +267,6 @@ impl Searcher for Pattern {
 }
 
 impl Applier for Pattern {
-    fn get_pattern_ast(&self) -> Option<&PatternAst> {
-        Some(&self.ast)
-    }
-
     fn apply_matches(
         &self,
         egraph: &mut EGraph,
@@ -301,6 +297,10 @@ impl Applier for Pattern {
             }
         }
         added
+    }
+
+    fn get_pattern_ast(&self) -> Option<&PatternAst> {
+        Some(&self.ast)
     }
 
     fn apply_one(
@@ -348,7 +348,7 @@ pub(crate) fn apply_pat(
         let id = match pat_node {
             ENodeOrVar::Var(w) => subst[*w],
             ENodeOrVar::ENode(e) => {
-                let n = e.clone().map_children(|child| ids[usize::from(child)]);
+                let n = e.clone().map_operands(|child| ids[usize::from(child)]);
                 trace!("adding: {:?}", n);
                 egraph.add(n)
             }

@@ -215,13 +215,17 @@ where
     }
 }
 
+
+
+/// just UnionFind to manage EClass Equivalencies
 #[derive(Debug, Clone, Default)]
-pub struct UnionFind {
+pub(crate) struct EClassUnion {
     parents: Vec<Id>,
 }
 
-impl UnionFind {
-    pub fn make_set(&mut self) -> Id {
+impl EClassUnion {
+    /// creates a new class with a root id, but no children
+    pub fn init_class(&mut self) -> Id {
         let id = Id::from(self.parents.len());
         self.parents.push(id);
         id
@@ -239,14 +243,16 @@ impl UnionFind {
         &mut self.parents[usize::from(query)]
     }
 
-    pub fn find(&self, mut current: Id) -> Id {
+    /// all equivalent EClasses have equal roots
+    pub fn root(&self, mut current: Id) -> Id {
         while current != self.parent(current) {
             current = self.parent(current)
         }
         current
     }
 
-    pub fn find_mut(&mut self, mut current: Id) -> Id {
+    // same as [root] but will also compress the tree
+    pub fn root_mut(&mut self, mut current: Id) -> Id {
         while current != self.parent(current) {
             let grandparent = self.parent(self.parent(current));
             *self.parent_mut(current) = grandparent;
@@ -275,9 +281,9 @@ mod tests {
         let n = 10;
         let id = Id::from;
 
-        let mut uf = UnionFind::default();
+        let mut uf = EClassUnion::default();
         for _ in 0..n {
-            uf.make_set();
+            uf.init_class();
         }
 
         // test the initial condition of everyone in their own set
@@ -295,7 +301,7 @@ mod tests {
 
         // this should compress all paths
         for i in 0..n {
-            uf.find_mut(id(i));
+            uf.root_mut(id(i));
         }
 
         // indexes:         0, 1, 2, 3, 4, 5, 6, 7, 8, 9

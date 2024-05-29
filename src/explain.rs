@@ -1,4 +1,4 @@
-use crate::{util::pretty_print, Analysis, Construct, EClass, ENodeOrVar, HashMap, HashSet, Id, PatternAst, Rewrite, UnionFind, Var, SExpr};
+use crate::{util::pretty_print, Analysis, Construct, EClass, ENodeOrVar, HashMap, HashSet, Id, PatternAst, Rewrite, EClassUnion, Var, SExpr};
 use crate::{Expr, ExprAnalysis, Symbol};
 
 use std::cmp::Ordering;
@@ -777,7 +777,7 @@ impl FlatTerm {
                 // The node must match the rewrite or the proof is invalid.
                 assert!(node.matches(&self.node));
                 let mut counter = 0;
-                node.for_each(|child| {
+                node.for_each_oprnd(|child| {
                     self.children[counter].make_bindings(pattern, usize::from(child), bindings);
                     counter += 1;
                 });
@@ -1060,7 +1060,7 @@ impl<'x> ExplainNodes<'x> {
         &mut self,
         left: Id,
         right: Id,
-        unionfind: &mut UnionFind,
+        unionfind: &mut EClassUnion,
         classes: &HashMap<Id, EClass>,
     ) -> Explanation {
         if self.optimize_explanation_lengths {
@@ -1205,7 +1205,7 @@ impl<'x> ExplainNodes<'x> {
         let mut new_rest_of_proof = (*self.node_to_explanation(existance, enode_cache)).clone();
         let mut index_of_child = 0;
         let mut found = false;
-        self.node(existance).for_each(|child| {
+        self.node(existance).for_each_oprnd(|child| {
             if found {
                 return;
             }
@@ -1293,9 +1293,9 @@ impl<'x> ExplainNodes<'x> {
                 let mut subproofs = vec![];
 
                 for (left_child, right_child) in current_node
-                    .children()
+                    .operands()
                     .iter()
-                    .zip(next_node.children().iter())
+                    .zip(next_node.operands().iter())
                 {
                     subproofs.push(self.explain_enodes(
                         *left_child,
@@ -1428,9 +1428,9 @@ impl<'x> ExplainNodes<'x> {
         let next_node = self.node(next).clone();
         let mut cost: ProofCost = BigUint::zero();
         for (left_child, right_child) in current_node
-            .children()
+            .operands()
             .iter()
-            .zip(next_node.children().iter())
+            .zip(next_node.operands().iter())
         {
             cost += self.distance_between(*left_child, *right_child, distance_memo);
         }
@@ -1501,7 +1501,7 @@ impl<'x> ExplainNodes<'x> {
         &self,
         classes: &HashMap<Id, EClass>,
         congruence_neighbors: &mut [Vec<Id>],
-        unionfind: &UnionFind,
+        unionfind: &EClassUnion,
     ) {
         let mut counter = 0;
         // add the normal congruence edges first
@@ -1523,7 +1523,7 @@ impl<'x> ExplainNodes<'x> {
                 let cannon = self
                     .node(*enode)
                     .clone()
-                    .map_children(|child| unionfind.find(child));
+                    .map_operands(|child| unionfind.root(child));
                 if let Some(others) = cannon_enodes.get_mut(&cannon) {
                     for other in others.iter() {
                         congruence_neighbors[usize::from(*enode)].push(*other);
@@ -1543,7 +1543,7 @@ impl<'x> ExplainNodes<'x> {
         }
     }
 
-    pub fn get_num_congr(&self, classes: &HashMap<Id, EClass>, unionfind: &UnionFind) -> usize {
+    pub fn get_num_congr(&self, classes: &HashMap<Id, EClass>, unionfind: &EClassUnion) -> usize {
         let mut congruence_neighbors = vec![vec![]; self.explainfind.len()];
         self.find_congruence_neighbors(classes, &mut congruence_neighbors, unionfind);
         let mut count = 0;
@@ -1703,9 +1703,9 @@ impl<'x> ExplainNodes<'x> {
                     let current_node = self.node(current).clone();
                     let next_node = self.node(next).clone();
                     for (left_child, right_child) in current_node
-                        .children()
+                        .operands()
                         .iter()
-                        .zip(next_node.children().iter())
+                        .zip(next_node.operands().iter())
                     {
                         todo_congruence.push_back((*left_child, *right_child));
                     }
@@ -1721,7 +1721,7 @@ impl<'x> ExplainNodes<'x> {
         children: &HashMap<Id, Vec<Id>>,
         common_ancestor_queries: &HashMap<Id, Vec<Id>>,
         black_set: &mut HashSet<Id>,
-        unionfind: &mut UnionFind,
+        unionfind: &mut EClassUnion,
         ancestor: &mut Vec<Id>,
         common_ancestor: &mut HashMap<(Id, Id), Id>,
     ) {
@@ -1737,14 +1737,14 @@ impl<'x> ExplainNodes<'x> {
                 common_ancestor,
             );
             unionfind.union(enode, *child);
-            ancestor[usize::from(unionfind.find(enode))] = enode;
+            ancestor[usize::from(unionfind.root(enode))] = enode;
         }
 
         if common_ancestor_queries.get(&enode).is_some() {
             black_set.insert(enode);
             for other in common_ancestor_queries.get(&enode).unwrap() {
                 if black_set.contains(other) {
-                    let ancestor = ancestor[usize::from(unionfind.find(*other))];
+                    let ancestor = ancestor[usize::from(unionfind.root(*other))];
                     common_ancestor.insert((enode, *other), ancestor);
                     common_ancestor.insert((*other, enode), ancestor);
                 }
@@ -1767,9 +1767,9 @@ impl<'x> ExplainNodes<'x> {
             for other in others {
                 for (left, right) in self
                     .node(*start)
-                    .children()
+                    .operands()
                     .iter()
-                    .zip(self.node(*other).children().iter())
+                    .zip(self.node(*other).operands().iter())
                 {
                     if left != right {
                         if common_ancestor_queries.get(start).is_none() {
@@ -1786,10 +1786,10 @@ impl<'x> ExplainNodes<'x> {
         }
 
         let mut common_ancestor = HashMap::default();
-        let mut unionfind = UnionFind::default();
+        let mut unionfind = EClassUnion::default();
         let mut ancestor = vec![];
         for i in 0..self.explainfind.len() {
-            unionfind.make_set();
+            unionfind.init_class();
             ancestor.push(Id::from(i));
         }
         for (eclass, _) in classes.iter() {
@@ -1829,7 +1829,7 @@ impl<'x> ExplainNodes<'x> {
         start: Id,
         end: Id,
         classes: &HashMap<Id, EClass>,
-        unionfind: &UnionFind,
+        unionfind: &EClassUnion,
     ) {
         let mut congruence_neighbors = vec![vec![]; self.explainfind.len()];
         self.find_congruence_neighbors(classes, &mut congruence_neighbors, unionfind);

@@ -14,14 +14,6 @@ pub struct Extractor<'a, CF: CostFunction> {
 
 /** A cost function that can be used by an [`Extractor`].
 
-To extract an expression from an [`EGraph`], the [`Extractor`]
-requires a cost function to performs its greedy search.
-`egg` provides the simple [`AstSize`] and [`AstDepth`] cost functions.
-
-The example below illustrates a silly but realistic example of
-implementing a cost function that is essentially AST size weighted by
-the operator:
-
 If you'd like to access the [`Analysis`] data or anything else in the e-graph,
 you can put a reference to the e-graph in your [`CostFunction`]:
 
@@ -125,28 +117,28 @@ where
     /// Find the cheapest (lowest cost) represented `RecExpr` in the
     /// given eclass.
     pub fn find_best(&self, eclass: Id) -> (CF::Cost, RecExpr<Expr>) {
-        let (cost, root) = self.costs[&self.egraph.find(eclass)].clone();
+        let (cost, root) = self.costs[&self.egraph.eclass_id(eclass)].clone();
         let expr = root.build_recexpr(|id| self.find_best_node(id).clone());
         (cost, expr)
     }
 
     /// Find the cheapest e-node in the given e-class.
     pub fn find_best_node(&self, eclass: Id) -> &Expr {
-        &self.costs[&self.egraph.find(eclass)].1
+        &self.costs[&self.egraph.eclass_id(eclass)].1
     }
 
     /// Find the cost of the term that would be extracted from this e-class.
     pub fn find_best_cost(&self, eclass: Id) -> CF::Cost {
-        let (cost, _) = &self.costs[&self.egraph.find(eclass)];
+        let (cost, _) = &self.costs[&self.egraph.eclass_id(eclass)];
         cost.clone()
     }
 
     fn node_total_cost(&mut self, node: &Expr) -> Option<CF::Cost> {
         let eg = &self.egraph;
-        let has_cost = |id| self.costs.contains_key(&eg.find(id));
-        if node.all(has_cost) {
+        let has_cost = |id| self.costs.contains_key(&eg.eclass_id(id));
+        if node.check_all(has_cost) {
             let costs = &self.costs;
-            let cost_f = |id| costs[&eg.find(id)].0.clone();
+            let cost_f = |id| costs[&eg.eclass_id(id)].0.clone();
             Some(self.cost_function.cost(node, cost_f))
         } else {
             None

@@ -1,8 +1,10 @@
+use std::fmt::{Debug, Formatter};
 use crate::*;
-use std::result;
+use std::{fmt, result};
 
 type Result = result::Result<(), ()>;
 
+/// explanation: [Efficient E-matching for SMT Solvers] (https://leodemoura.github.io/files/ematching.pdf)
 #[derive(Default)]
 struct Machine {
     reg: Vec<Id>,
@@ -33,6 +35,7 @@ enum ENodeOrReg {
     Reg(Reg),
 }
 
+/// applies a function to all matching nodes (according to [Expr::matches]) in the [EClass]
 #[inline(always)]
 fn for_each_matching_node(
     eclass: &EClass,
@@ -40,16 +43,21 @@ fn for_each_matching_node(
     mut f: impl FnMut(&Expr) -> Result,
 ) -> Result {
     if eclass.nodes.len() < 50 {
+        // if < 50 just apply f to all matching nodes
         eclass
             .nodes
             .iter()
             .filter(|n| node.matches(n))
             .try_for_each(f)
     } else {
-        debug_assert!(node.all(|id| id == Id::from(0)));
+        debug_assert!(node.check_all(|id| id == Id::from(0)));
+        // check if nodes are sorted
         debug_assert!(eclass.nodes.windows(2).all(|w| w[0] < w[1]));
+
+        // returns index of the found node or the index where node could be inserted
         let mut start = eclass.nodes.binary_search(node).unwrap_or_else(|i| i);
         let discrim = node.discriminant();
+        // find "starting point" if we have multiple equal nodes
         while start > 0 {
             if eclass.nodes[start - 1].discriminant() == discrim {
                 start -= 1;
@@ -60,7 +68,9 @@ fn for_each_matching_node(
         let mut matching = eclass.nodes[start..]
             .iter()
             .take_while(|&n| n.discriminant() == discrim)
+            // find all nodes with equal discriminant
             .filter(|n| node.matches(n));
+
         debug_assert_eq!(
             matching.clone().count(),
             eclass.nodes.iter().filter(|n| node.matches(n)).count(),
@@ -92,16 +102,26 @@ impl Machine {
         yield_fn: &mut impl FnMut(&Self, &Subst) -> Result,
     ) -> Result {
         let mut instructions = instructions.iter();
+        // todo: for_each?
         while let Some(instruction) = instructions.next() {
             match instruction {
+
+                // for each matching node in eclass at register i:
+                //      only keep the first out.0 entries in register
+                //      add all operand ids of the matching node to register
+                //      recurse with the remaining instructions
                 Instruction::Bind { i, out, node } => {
                     let remaining_instructions = instructions.as_slice();
-                    return for_each_matching_node(&egraph[self.reg(*i)], node, |matched| {
+                    let eclass = &egraph[self.reg(*i)];
+                    return for_each_matching_node(eclass, node, |matched| {
                         self.reg.truncate(out.0 as usize);
-                        matched.for_each(|id| self.reg.push(id));
+                        matched.for_each_oprnd(|id| self.reg.push(id));
                         self.run(egraph, remaining_instructions, subst, yield_fn)
                     });
                 }
+
+                // only keep max out.0 entries in register
+                // iter over classes, push their id and recurse with the remaining instructions
                 Instruction::Scan { out } => {
                     let remaining_instructions = instructions.as_slice();
                     for class in egraph.classes() {
@@ -111,29 +131,37 @@ impl Machine {
                     }
                     return Ok(());
                 }
+
                 Instruction::Compare { i, j } => {
-                    if egraph.find(self.reg(*i)) != egraph.find(self.reg(*j)) {
+                    if egraph.eclass_id(self.reg(*i)) != egraph.eclass_id(self.reg(*j)) {
                         return Ok(());
                     }
                 }
+
+                // for each term in terms: find eclass_id of term and push into self.lookup
+                // if not in egraph, return Ok(())
+                // get eclass_id of val at register i, if not equal
+                // to last looked up id return Ok(())
                 Instruction::Lookup { term, i } => {
                     self.lookup.clear();
                     for node in term {
                         match node {
                             ENodeOrReg::ENode(node) => {
-                                let look = |i| self.lookup[usize::from(i)];
-                                match egraph.lookup(node.clone().map_children(look)) {
+                                //let look = |i| self.lookup[usize::from(i)];
+                                //match egraph.lookup(node.clone().map_operands(look)) {
+                                let n = node.clone().map_operands(|id| self.lookup[usize::from(id)]);
+                                match egraph.lookup(n) {
                                     Some(id) => self.lookup.push(id),
                                     None => return Ok(()),
                                 }
                             }
                             ENodeOrReg::Reg(r) => {
-                                self.lookup.push(egraph.find(self.reg(*r)));
+                                self.lookup.push(egraph.eclass_id(self.reg(*r)));
                             }
                         }
                     }
 
-                    let id = egraph.find(self.reg(*i));
+                    let id = egraph.eclass_id(self.reg(*i));
                     if self.lookup.last().copied() != Some(id) {
                         return Ok(());
                     }
@@ -146,9 +174,11 @@ impl Machine {
 }
 
 struct Compiler {
+    // map variable to register
     v2r: IndexMap<Var, Reg>,
     free_vars: Vec<HashSet<Var>>,
     subtree_size: Vec<usize>,
+    // map id and register to expr with that id
     todo_nodes: HashMap<(Id, Reg), Expr>,
     instructions: Vec<Instruction>,
     next_reg: Reg,
@@ -166,6 +196,9 @@ impl Compiler {
         }
     }
 
+    // if id is a Var and there is a register mapped to it, compare them
+    // if id is a Var and there is no register mapped to it, create one to reg
+    // if id is an ENode insert into todo_nodes id and reg
     fn add_todo(&mut self, pattern: &PatternAst, id: Id, reg: Reg) {
         match &pattern[id] {
             ENodeOrVar::Var(v) => {
@@ -181,6 +214,7 @@ impl Compiler {
         }
     }
 
+    // collect all free variables into self.free
     fn load_pattern(&mut self, pattern: &PatternAst) {
         let len = pattern.as_ref().len();
         self.free_vars = Vec::with_capacity(len);
@@ -192,7 +226,8 @@ impl Compiler {
             match node {
                 ENodeOrVar::ENode(n) => {
                     size = 1;
-                    for &child in n.children() {
+                    for &child in n.operands() {
+                        // add free vars of the children
                         free.extend(&self.free_vars[usize::from(child)]);
                         size += self.subtree_size[usize::from(child)];
                     }
@@ -206,6 +241,7 @@ impl Compiler {
         }
     }
 
+    // returns the next node in todo_nodes according to some rules
     fn next(&mut self) -> Option<((Id, Reg), Expr)> {
         // we take the max todo according to this key
         // - prefer grounded
@@ -213,12 +249,14 @@ impl Compiler {
         // - prefer smaller term
         let key = |(id, _): &&(Id, Reg)| {
             let i = usize::from(*id);
+            // get all free variables at i
             let n_bound = self.free_vars[i]
                 .iter()
                 .filter(|v| self.v2r.contains_key(*v))
                 .count();
             let n_free = self.free_vars[i].len() - n_bound;
             let size = self.subtree_size[i] as isize;
+            // get node from todo_nodes with maximum:
             (n_free == 0, n_free, -size)
         };
 
@@ -231,6 +269,7 @@ impl Compiler {
 
     /// check to see if this e-node corresponds to a term that is grounded by
     /// the variables bound at this point
+    // check if enode with id has only variables with a mapping to a register
     fn is_ground_now(&self, id: Id) -> bool {
         self.free_vars[usize::from(id)]
             .iter()
@@ -289,14 +328,14 @@ impl Compiler {
                 next_out.0 += node.len() as u32;
 
                 // zero out the children so Bind can use it to sort
-                let op = node.clone().map_children(|_| Id::from(0));
+                let op = node.clone().map_operands(|_| Id::from(0));
                 self.instructions.push(Instruction::Bind {
                     i: reg,
                     node: op,
                     out,
                 });
 
-                for (i, &child) in node.children().iter().enumerate() {
+                for (i, &child) in node.operands().iter().enumerate() {
                     self.add_todo(pattern, child, Reg(out.0 + i as u32));
                 }
             }
