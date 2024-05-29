@@ -22,14 +22,12 @@ for less or more logging.
 
 mod egraph;
 mod explain;
-mod extract;
 mod language;
 mod machine;
 mod multipattern;
 mod pattern;
 mod rewrite;
 mod run;
-mod subst;
 mod util;
 
 /// A key to identify [`EClass`]es within an
@@ -70,13 +68,11 @@ pub use {
         Explanation, FlatExplanation, FlatTerm, Justification, TreeExplanation, TreeTerm,
         UnionEqualities,
     },
-    extract::*,
     language::*,
     multipattern::*,
     pattern::{ENodeOrVar, Pattern, PatternAst, SearchMatches},
-    rewrite::{Applier, Condition, ConditionEqual, ConditionalApplier, Rewrite, Searcher},
+    rewrite::{Applier, Condition, ConditionEqual, ConditionalApplier, Rewrite, Searcher, Var, Subst},
     run::*,
-    subst::{Subst, Var},
     util::*,
 };
 

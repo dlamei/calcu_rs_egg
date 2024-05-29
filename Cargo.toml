@@ -20,10 +20,6 @@ symbol_table = { version = "0.3.0", features = ["global"] }
 num-bigint = "0.4"
 num-traits = "0.2"
 
-# for the lp feature
-coin_cbc = { version = "0.1.6", optional = true }
-
 [features]
 # forces the use of indexmaps over hashmaps
-deterministic = []
-lp = ["coin_cbc"]
+# deterministic = []

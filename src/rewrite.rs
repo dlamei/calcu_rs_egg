@@ -1,5 +1,5 @@
 use pattern::apply_pat;
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Display, Formatter};
 use std::sync::Arc;
 
 use crate::*;
@@ -405,5 +405,75 @@ impl Condition for ConditionEqual {
         let mut vars = self.p1.vars();
         vars.extend(self.p2.vars());
         vars
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Var(Symbol);
+
+impl Display for Var {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A substitution mapping [`Var`]s to eclass [`Id`]s.
+///
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Subst {
+    pub(crate) vec: smallvec::SmallVec<[(Var, Id); 3]>,
+}
+
+impl Subst {
+    /// Create a `Subst` with the given initial capacity
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            vec: smallvec::SmallVec::with_capacity(capacity),
+        }
+    }
+
+    /// Insert something, returning the old `Id` if present.
+    pub fn insert(&mut self, var: Var, id: Id) -> Option<Id> {
+        for pair in &mut self.vec {
+            if pair.0 == var {
+                return Some(std::mem::replace(&mut pair.1, id));
+            }
+        }
+        self.vec.push((var, id));
+        None
+    }
+
+    /// Retrieve a `Var`, returning `None` if not present.
+    #[inline(never)]
+    pub fn get(&self, var: Var) -> Option<&Id> {
+        self.vec
+            .iter()
+            .find_map(|(v, id)| if *v == var { Some(id) } else { None })
+    }
+}
+
+impl std::ops::Index<Var> for Subst {
+    type Output = Id;
+
+    fn index(&self, var: Var) -> &Self::Output {
+        match self.get(var) {
+            Some(id) => id,
+            None => panic!("Var '{}={}' not found in {:?}", var, var, self),
+        }
+    }
+}
+
+impl Debug for Subst {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let len = self.vec.len();
+        write!(f, "{{")?;
+        for i in 0..len {
+            let (var, id) = &self.vec[i];
+            write!(f, "{}: {}", var, id)?;
+            if i < len - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "}}")
     }
 }

@@ -172,8 +172,8 @@ impl EGraph {
         let right_unions = other.get_union_equalities();
         for (left, right, why) in right_unions {
             self.union_instantiations(
-                &other.id_to_pattern(left, &Default::default()).0.ast,
-                &other.id_to_pattern(right, &Default::default()).0.ast,
+                &other.id_to_pattern(left).0.ast,
+                &other.id_to_pattern(right).0.ast,
                 &Default::default(),
                 why,
             );
@@ -317,11 +317,11 @@ impl EGraph {
     /// When an eclass listed in the given substitutions is found, it creates a variable.
     /// It also adds this variable and the corresponding Id value to the resulting [`Subst`]
     /// Otherwise it behaves like [`id_to_expr`](EGraph::id_to_expr).
-    pub fn id_to_pattern(&self, id: Id, substitutions: &HashMap<Id, Id>) -> (Pattern, Subst) {
+    pub fn id_to_pattern(&self, id: Id) -> (Pattern, Subst) {
         let mut res = Default::default();
         let mut subst = Default::default();
         let mut cache = Default::default();
-        self.id_to_pattern_internal(&mut res, id, substitutions, &mut subst, &mut cache);
+        self.id_to_pattern_internal(&mut res, id, &mut subst, &mut cache);
         (Pattern::new(res), subst)
     }
 
@@ -329,20 +329,15 @@ impl EGraph {
         &self,
         res: &mut PatternAst,
         node_id: Id,
-        var_substitutions: &HashMap<Id, Id>,
         subst: &mut Subst,
         cache: &mut HashMap<Id, Id>,
     ) -> Id {
         if let Some(existing) = cache.get(&node_id) {
             return *existing;
         }
-        let res_id = if let Some(existing) = var_substitutions.get(&node_id) {
-            let var = format!("?{}", node_id).parse().unwrap();
-            subst.insert(var, *existing);
-            res.add(ENodeOrVar::Var(var))
-        } else {
+        let res_id = {
             let new_node = self.id_to_node(node_id).clone().map_operands(|child| {
-                self.id_to_pattern_internal(res, child, var_substitutions, subst, cache)
+                self.id_to_pattern_internal(res, child, subst, cache)
             });
             res.add(ENodeOrVar::ENode(new_node))
         };
